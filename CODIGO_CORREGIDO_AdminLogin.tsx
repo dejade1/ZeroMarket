@@ -100,12 +100,12 @@ function isValidEmail(email: string): boolean {
 function isStrongPassword(password: string): boolean {
   if (password.length < VALIDATION.PASSWORD_MIN_LENGTH) return false;
   if (password.length > VALIDATION.PASSWORD_MAX_LENGTH) return false;
-
+  
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);
   const hasNumbers = /\d/.test(password);
   const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-
+  
   return hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar;
 }
 
@@ -159,12 +159,12 @@ function saveUsers(users: User[]): void {
 function isAccountLocked(): boolean {
   const lockoutUntil = localStorage.getItem(STORAGE_KEYS.LOCKOUT_UNTIL);
   if (!lockoutUntil) return false;
-
+  
   const lockoutTime = parseInt(lockoutUntil, 10);
   if (Date.now() < lockoutTime) {
     return true;
   }
-
+  
   // Lockout expirado, limpiar
   localStorage.removeItem(STORAGE_KEYS.LOCKOUT_UNTIL);
   localStorage.removeItem(STORAGE_KEYS.LOGIN_ATTEMPTS);
@@ -179,12 +179,12 @@ function recordFailedAttempt(): void {
     STORAGE_KEYS.LOGIN_ATTEMPTS,
     { count: 0, lastAttempt: Date.now() }
   );
-
+  
   attempts.count += 1;
   attempts.lastAttempt = Date.now();
-
+  
   localStorage.setItem(STORAGE_KEYS.LOGIN_ATTEMPTS, JSON.stringify(attempts));
-
+  
   if (attempts.count >= VALIDATION.MAX_LOGIN_ATTEMPTS) {
     const lockoutUntil = Date.now() + VALIDATION.LOCKOUT_DURATION_MS;
     localStorage.setItem(STORAGE_KEYS.LOCKOUT_UNTIL, lockoutUntil.toString());
@@ -211,11 +211,11 @@ async function validateCredentials(
 ): Promise<User | null> {
   const users = getStoredUsers();
   const passwordHash = await hashPassword(password);
-
+  
   const user = users.find(
     u => u.username === username && u.passwordHash === passwordHash
   );
-
+  
   return user || null;
 }
 
@@ -232,22 +232,22 @@ async function registerUser(
   if (username.length < VALIDATION.USERNAME_MIN_LENGTH) {
     throw new Error(ERROR_MESSAGES.USERNAME_TOO_SHORT);
   }
-
+  
   if (!isValidEmail(email)) {
     throw new Error(ERROR_MESSAGES.INVALID_EMAIL);
   }
-
+  
   if (!isStrongPassword(password)) {
     throw new Error(ERROR_MESSAGES.WEAK_PASSWORD);
   }
-
+  
   const users = getStoredUsers();
-
+  
   // Verificar si el usuario ya existe
   if (users.some(u => u.username === username || u.email === email)) {
     throw new Error('El usuario o email ya existe');
   }
-
+  
   // Crear nuevo usuario con contraseña hasheada
   const newUser: User = {
     id: generateId(),
@@ -257,10 +257,10 @@ async function registerUser(
     isAdmin,
     createdAt: new Date().toISOString(),
   };
-
+  
   users.push(newUser);
   saveUsers(users);
-
+  
   return newUser;
 }
 
@@ -286,51 +286,51 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
     e.preventDefault();
     setError('');
     setSuccess('');
-
+    
     // Verificar si está bloqueado
     if (isAccountLocked()) {
       setError(ERROR_MESSAGES.ACCOUNT_LOCKED);
       return;
     }
-
+    
     setIsLoading(true);
-
+    
     try {
       // Sanitizar inputs
       const sanitizedUsername = sanitizeInput(username);
       const sanitizedPassword = sanitizeInput(password);
-
+      
       // Validar credenciales
       const user = await validateCredentials(sanitizedUsername, sanitizedPassword);
-
+      
       if (!user) {
         recordFailedAttempt();
         setError(ERROR_MESSAGES.INVALID_CREDENTIALS);
         return;
       }
-
+      
       // Login exitoso
       clearLoginAttempts();
-
+      
       // Actualizar último login
       const users = getStoredUsers();
       const updatedUsers = users.map(u =>
         u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u
       );
       saveUsers(updatedUsers);
-
+      
       // ⚠️ NOTA: En producción, aquí se debe:
       // 1. Enviar credenciales al backend
       // 2. Recibir JWT token
       // 3. Almacenar token en httpOnly cookie
       // 4. NO almacenar información sensible en localStorage
-
+      
       setSuccess('¡Login exitoso!');
       setTimeout(() => {
         onClose();
         // Aquí se debe redirigir al dashboard
       }, 1000);
-
+      
     } catch (err) {
       console.error('Login error:', err);
       setError(ERROR_MESSAGES.GENERIC_ERROR);
@@ -347,22 +347,22 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
     setError('');
     setSuccess('');
     setIsLoading(true);
-
+    
     try {
       await registerUser(username, email, password, false);
       setSuccess('¡Registro exitoso! Ahora puedes iniciar sesión.');
-
+      
       // Limpiar formulario
       setUsername('');
       setEmail('');
       setPassword('');
-
+      
       // Cambiar a modo login después de 2 segundos
       setTimeout(() => {
         setIsLogin(true);
         setSuccess('');
       }, 2000);
-
+      
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -510,7 +510,7 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
         {/* Advertencia de seguridad */}
         <div className="mt-6 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-xs text-yellow-800">
-            ⚠️ <strong>Nota de Desarrollo:</strong> Este sistema de autenticación es solo para demostración.
+            ⚠️ <strong>Nota de Desarrollo:</strong> Este sistema de autenticación es solo para demostración. 
             En producción, debe implementarse un backend real con autenticación JWT y almacenamiento seguro.
           </p>
         </div>
@@ -518,3 +518,32 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
     </div>
   );
 }
+
+/**
+ * ==================== NOTAS DE IMPLEMENTACIÓN ====================
+ * 
+ * MEJORAS IMPLEMENTADAS:
+ * ✅ Hash de contraseñas (SHA-256)
+ * ✅ Validación robusta de inputs
+ * ✅ Sanitización contra XSS
+ * ✅ Rate limiting básico
+ * ✅ Mensajes de error genéricos
+ * ✅ Tipos TypeScript estrictos
+ * ✅ Constantes en lugar de magic numbers
+ * ✅ Manejo de errores mejorado
+ * ✅ Accesibilidad (labels, aria-labels)
+ * ✅ UX mejorada (loading states, feedback)
+ * 
+ * PENDIENTE PARA PRODUCCIÓN:
+ * 🔴 Implementar backend real (Node.js + Express/NestJS)
+ * 🔴 Usar JWT con httpOnly cookies
+ * 🔴 Implementar refresh tokens
+ * 🔴 Usar bcrypt/argon2 en lugar de SHA-256
+ * 🔴 Implementar CAPTCHA
+ * 🔴 Implementar 2FA
+ * 🔴 Logging de eventos de seguridad
+ * 🔴 Implementar HTTPS
+ * 🔴 Implementar CSRF protection
+ * 🔴 Rate limiting a nivel de servidor
+ * 🔴 Validación server-side
+ */

@@ -14,10 +14,16 @@ export function InventoryManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [formData, setFormData] = useState({
-    productId: '',
+  const [formData, setFormData] = useState<{
+    productId: number;
+    quantity: number;
+    type: 'in' | 'out';
+    note: string;
+    newPrice: string;
+  }>({
+    productId: 0,
     quantity: 1,
-    type: 'in' as 'in' | 'out',
+    type: 'in',
     note: '',
     newPrice: ''
   });
@@ -28,7 +34,7 @@ export function InventoryManager() {
 
   // Selector lote (salida)
   const [lotesDisponibles, setLotesDisponibles] = useState<Batch[]>([]);
-  const [selectedLote, setSelectedLote] = useState<string>('');
+  const [selectedLote, setSelectedLote] = useState<number>(0);
 
   useEffect(() => {
     loadProducts();
@@ -37,7 +43,7 @@ export function InventoryManager() {
   useEffect(() => {
     // Actualiza el código de lote cuando cambia el producto o es entrada
     if (formData.productId && formData.type === 'in') {
-      const prod = products.find(p => p.id === Number(formData.productId));
+      const prod = products.find(p => p.id === formData.productId);
       if (prod) {
         const prefijo = prod.title
           .split(' ')
@@ -49,7 +55,7 @@ export function InventoryManager() {
     }
     // Cuando es salida, cargar lotes del producto seleccionado
     if (formData.productId && formData.type === 'out') {
-      getBatchesByProduct(Number(formData.productId))
+      getBatchesByProduct(formData.productId)
         .then((batches) => {
           setLotesDisponibles(batches.filter(b => b.quantity > 0));
         });
@@ -69,8 +75,8 @@ export function InventoryManager() {
     }
   }
 
-  const handleProductSelect = (productId: string) => {
-    const selectedProduct = products.find(p => p.id === parseInt(productId));
+  const handleProductSelect = (productId: number) => {
+    const selectedProduct = products.find(p => p.id === productId);
     setFormData(prev => ({
       ...prev,
       productId,
@@ -87,8 +93,7 @@ export function InventoryManager() {
       setError('Por favor seleccione un producto');
       return;
     }
-
-    const productId = parseInt(formData.productId);
+    const productId = formData.productId;
 
     try {
       if (formData.type === 'in') {
@@ -111,8 +116,8 @@ export function InventoryManager() {
           setError('Debe seleccionar un lote para salida');
           return;
         }
-        // Encontrar lote
-        const lote = lotesDisponibles.find(l => l.batchCode === selectedLote || l.id === Number(selectedLote));
+        // Encontrar lote por id
+        const lote = lotesDisponibles.find(l => l.id === selectedLote);
         if (!lote || lote.quantity < formData.quantity) {
           setError('Cantidad de lote insuficiente');
           return;
@@ -141,7 +146,7 @@ export function InventoryManager() {
       await loadProducts();
       setSuccess('Stock y lote actualizados correctamente');
       setFormData({
-        productId: '',
+        productId: 0,
         quantity: 1,
         type: 'in',
         note: '',
@@ -149,7 +154,7 @@ export function InventoryManager() {
       });
       setBatchCode('');
       setExpiryDate('');
-      setSelectedLote('');
+      setSelectedLote(0);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Error al actualizar stock');
     }
@@ -190,7 +195,7 @@ export function InventoryManager() {
             onChange={(e) => handleProductSelect(e.target.value)}
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
           >
-            <option value="">Seleccionar producto</option>
+            <option value={0}>Seleccionar producto</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
                 {product.title} (Stock actual: {product.stock})
@@ -281,11 +286,11 @@ export function InventoryManager() {
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
             >
               <option value="">Seleccionar lote</option>
-              {lotesDisponibles.map(batch => (
-                <option key={batch.id} value={batch.batchCode}>
-                  {batch.batchCode} (Disp: {batch.quantity}, Vence: {batch.expiryDate})
-                </option>
-              ))}
+                {lotesDisponibles.map(batch => (
+                  <option key={batch.id} value={batch.id}>
+                    {batch.batchCode} (Disp: {batch.quantity}, Vence: {batch.expiryDate})
+                  </option>
+                ))}
             </select>
           </div>
         )}

@@ -5,10 +5,11 @@ import { InventoryTable } from './InventoryTable';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
 import { SalesHistory } from './SalesHistory';
-import { getAllProducts, db } from '../../lib/inventory';
+import { getAllProducts } from '../../lib/inventory';
 import { ledService } from "../../services/LedService";
 import type { Product } from '../../lib/inventory';
-import BatchManager from "./BatchManager";
+import ExpiringBatchesAlert from "./ExpiringBatchesAlert";
+import BatchSearcher from "./BatchSearcher";
 import EmailTasks from "./EmailTasks";
 
 export function Dashboard() {
@@ -297,12 +298,21 @@ export function Dashboard() {
           {activeTab === 'sales' && <SalesHistory />}
           {activeTab === 'users' && <UserManagement />}
 
-          {activeTab === 'batches' && selectedProduct ? (
-            <div>
-              <BatchManager productId={selectedProduct.id} productName={selectedProduct.title} />
+          {activeTab === 'batches' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Búsqueda de Lotes por Producto</h3>
+                <BatchSearcher />
+              </div>
+              <hr className="my-6" />
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Lotes Próximos a Caducarse</h3>
+                <ExpiringBatchesAlert />
+              </div>
+              <hr className="my-6" />
               <EmailTasks />
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </div>

@@ -104,15 +104,33 @@ class DB {
     if (!this.db) throw new Error('Database not initialized');
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(storeName, mode);
-      const store = transaction.objectStore(storeName);
+      try {
+        const tx = this.db!.transaction(storeName, mode);
+        const store = tx.objectStore(storeName);
 
-      transaction.oncomplete = () => resolve;
-      transaction.onerror = () => reject(transaction.error);
+        let callbackResult: T | undefined;
 
-      Promise.resolve(callback(store))
-        .then(resolve)
-        .catch(reject);
+        tx.oncomplete = () => resolve(callbackResult as T);
+        tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+        tx.onerror = () => reject(tx.error || new Error('Transaction error'));
+
+        // Execute the callback. If it resolves, we keep the value and wait
+        // for the transaction to complete before resolving the outer promise.
+        Promise.resolve()
+          .then(() => callback(store))
+          .then((res) => {
+            callbackResult = res;
+            // Note: do not resolve here — wait for tx.oncomplete to ensure
+            // all IDB requests have finished and the transaction committed.
+          })
+          .catch((err) => {
+            // If the callback fails, abort the transaction and reject.
+            try { tx.abort(); } catch (e) { /* ignore */ }
+            reject(err);
+          });
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
@@ -122,6 +140,26 @@ class DB {
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  // Obtener todos los registros usando un índice (más eficiente que getAll + filter)
+  async getAllByIndex<T extends keyof DBSchema>(
+    storeName: T,
+    indexName: string,
+    query?: IDBValidKey | IDBKeyRange
+  ): Promise<DBSchema[T][]> {
+    return this.transaction(storeName, 'readonly', async (store) => {
+      return new Promise((resolve, reject) => {
+        try {
+          const index = (store as IDBObjectStore).index(indexName);
+          const request = index.getAll(query as IDBValidKey | IDBKeyRange | undefined);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        } catch (err) {
+          reject(err);
+        }
       });
     });
   }
