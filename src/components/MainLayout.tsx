@@ -3,7 +3,6 @@ import { Navbar } from './Navbar';
 import { CategoryBar } from './CategoryBar';
 import { ProductCard } from './ProductCard';
 import { Cart } from './Cart';
-import { AdminButton } from './AdminButton';
 import { getAllProducts } from '../lib/inventory';
 import type { Product } from '../lib/inventory';
 
@@ -12,6 +11,7 @@ export function MainLayout() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
 
+  // Cargar productos
   useEffect(() => {
     const loadProducts = async () => {
       const productData = await getAllProducts();
@@ -31,11 +31,10 @@ export function MainLayout() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <AdminButton />
       <Navbar onSearch={handleSearch} searchTerm={searchTerm} />
       <CategoryBar />
       <Cart />
-      
+
       <main className="max-w-7xl mx-auto px-4 py-8">
         {searchTerm ? (
           <div className="mb-8">

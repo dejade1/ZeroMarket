@@ -4,11 +4,15 @@ import App from './App.tsx';
 import './index.css';
 import { initializeDB } from './lib/inventory';
 
+import { AuthProvider } from './context/AuthContext';
+
 // Inicializar la base de datos antes de renderizar la aplicación
 initializeDB().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </StrictMode>
   );
 }).catch(error => {

@@ -1,5 +1,5 @@
 /**
- * ARCHIVO NUEVO: utils/errorHandler.ts
+ * ARCHIVO CORREGIDO: utils/errorHandler.ts
  * 
  * Sistema centralizado de manejo de errores
  * 
@@ -10,6 +10,8 @@
  * ✅ Tipos TypeScript estrictos
  * ✅ Stack traces para debugging
  */
+
+import { useState, useCallback } from 'react';
 
 // ==================== TIPOS DE ERROR ====================
 
@@ -69,7 +71,9 @@ export class AppError extends Error {
         this.context = context;
 
         // Mantiene el stack trace correcto
-        Error.captureStackTrace(this, this.constructor);
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, this.constructor);
+        }
     }
 
     /**
@@ -83,7 +87,7 @@ export class AppError extends Error {
             statusCode: this.statusCode,
             timestamp: this.timestamp,
             context: this.context,
-            stack: process.env.NODE_ENV === 'development' ? this.stack : undefined,
+            stack: import.meta.env.DEV ? this.stack : undefined,
         };
     }
 }
@@ -205,7 +209,7 @@ class Logger {
 
         // En producción, aquí se enviarían los logs a un servicio externo
         // como Sentry, LogRocket, DataDog, etc.
-        if (process.env.NODE_ENV === 'production' && level === LogLevel.ERROR) {
+        if (import.meta.env.PROD && level === LogLevel.ERROR) {
             this.sendToExternalService(entry);
         }
     }
@@ -264,7 +268,7 @@ export const logger = new Logger();
 /**
  * Convierte cualquier error en AppError
  */
-export function handleError(error: unknown): AppError {
+export function normalizeError(error: unknown): AppError {
     // Si ya es un AppError, retornarlo
     if (error instanceof AppError) {
         return error;
@@ -308,7 +312,7 @@ export async function handleAsyncError<T>(
         const data = await promise;
         return [null, data];
     } catch (error) {
-        const appError = handleError(error);
+        const appError = normalizeError(error);
         if (errorMessage) {
             appError.message = errorMessage;
         }
@@ -327,7 +331,7 @@ export function tryCatch<T extends (...args: any[]) => any>(
         try {
             return fn(...args);
         } catch (error) {
-            const appError = handleError(error);
+            const appError = normalizeError(error);
             if (errorMessage) {
                 appError.message = errorMessage;
             }
@@ -359,7 +363,7 @@ export function getUserFriendlyMessage(error: unknown): string {
 
     if (error instanceof Error) {
         // En producción, no mostrar detalles técnicos
-        if (process.env.NODE_ENV === 'production') {
+        if (import.meta.env.PROD) {
             return 'Ocurrió un error. Por favor, intenta nuevamente.';
         }
         return error.message;
@@ -379,15 +383,13 @@ export function reportCriticalError(error: Error, context?: Record<string, unkno
     // 2. Guardar en sistema de monitoreo
     // 3. Posiblemente mostrar página de error
 
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.PROD) {
         // Enviar a servicio de monitoreo
         // sendToMonitoringService(error, context);
     }
 }
 
 // ==================== HOOKS DE REACT ====================
-
-import { useState, useCallback } from 'react';
 
 /**
  * Hook para manejo de errores en componentes
@@ -397,9 +399,8 @@ import { useState, useCallback } from 'react';
 export function useErrorHandler() {
     const [error, setError] = useState<AppError | null>(null);
 
-    // ✅ Renombrado para evitar shadowing con la función importada handleError
-    const handleErrorCallback = useCallback((err: unknown) => {
-        const appError = handleError(err); // ✅ Llama correctamente a la función importada
+    const handleError = useCallback((err: unknown) => {
+        const appError = normalizeError(err);
         setError(appError);
         logger.error(appError.message, err as Error);
     }, []);
@@ -410,7 +411,7 @@ export function useErrorHandler() {
 
     return {
         error,
-        handleError: handleErrorCallback, // ✅ Expone con el nombre esperado
+        handleError,
         clearError,
         hasError: error !== null,
     };
