@@ -1,5 +1,5 @@
 /**
- * ARCHIVO CORREGIDO: utils/validation.ts
+ * ARCHIVO NUEVO: utils/validation.ts
  * 
  * Sistema de validación y sanitización de datos
  * 
@@ -536,3 +536,36 @@ export const productValidationSchema = {
     stock: ['required', 'positiveNumber', { min: 0 }] as ValidationRule[],
     description: [{ maxLength: 5000 }] as ValidationRule[],
 };
+
+
+
+/**
+ * ==================== EJEMPLO DE USO ====================
+ * 
+ * // Validación simple
+ * const result = validateField(email, 'Email', ['required', 'email']);
+ * if (!result.isValid) {
+ *   console.error(result.errors);
+ * }
+ * 
+ * // Validación múltiple
+ * const results = validateFields([
+ *   { value: username, fieldName: 'Usuario', rules: ['required', 'username'] },
+ *   { value: email, fieldName: 'Email', rules: ['required', 'email'] },
+ *   { value: password, fieldName: 'Contraseña', rules: ['required', 'password'] },
+ * ]);
+ * 
+ * // Validación con throw
+ * try {
+ *   validateOrThrow(price, 'Precio', ['required', 'positiveNumber', { max: 1000 }]);
+ * } catch (error) {
+ *   if (error instanceof ValidationError) {
+ *     showError(error.message);
+ *   }
+ * }
+ * 
+ * // Sanitización
+ * const cleanUsername = sanitizeString(userInput);
+ * const cleanEmail = sanitizeEmail(emailInput);
+ * const cleanPrice = sanitizeNumber(priceInput);
+ */
