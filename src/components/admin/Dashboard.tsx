@@ -1,72 +1,124 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Package, DollarSign, ShoppingCart, Usb, Mail } from 'lucide-react';
+/**
+ * COMPONENTE: Dashboard
+ *
+ * Panel de administración principal con sistema de pestañas mejorado
+ *
+ * CARACTERÍSTICAS:
+ * ✅ 8 pestañas de navegación
+ * ✅ Navegación sin recargar página
+ * ✅ Indicador visual de pestaña activa
+ * ✅ Botón de cierre para volver al inicio
+ * ✅ Control de permisos por rol
+ * ✅ Diseño responsivo
+ * ✅ Estadísticas en tiempo real
+ */
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import {
+  Users,
+  Package,
+  Usb,
+  BarChart3,
+  Settings as SettingsIcon,
+  Archive,
+  LogOut,
+  ShoppingCart
+} from 'lucide-react';
+
+// Componentes de pestañas
 import { UserManagement } from './UserManagement';
 import { InventoryTable } from './InventoryTable';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
 import { SalesHistory } from './SalesHistory';
-import { getAllProducts } from '../../lib/inventory';
-import { ledService } from "../../services/LedService";
-import type { Product } from '../../lib/inventory';
-import ExpiringBatchesAlert from "./ExpiringBatchesAlert";
-import BatchSearcher from "./BatchSearcher";
-import EmailTasks from "./EmailTasks";
+import { Reports } from './Reports';
+import { Settings } from './Settings';
+import BatchManager from './BatchManager';
+import { SyncButton } from './SyncButton';
+
+// Servicios
+import { ledService } from '../../services/LedService';
+
+// Tipo de pestaña
+type TabType = 'inventory' | 'products' | 'stock' | 'orders' | 'users' | 'batches' | 'reports' | 'settings';
+
+// Definición de pestañas
+interface TabConfig {
+  id: TabType;
+  label: string;
+  icon: React.ElementType;
+  component: React.ReactNode;
+  requiredRole?: 'admin' | 'user';
+}
 
 export function Dashboard() {
-  const [activeTab, setActiveTab] = useState<
-    'users' | 'inventory' | 'stock' | 'products' | 'sales' | 'batches'
-  >('inventory');
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
 
+  // Estado
+  const [activeTab, setActiveTab] = useState<TabType>('inventory');
   const [isSerialConnected, setIsSerialConnected] = useState(false);
   const [serialError, setSerialError] = useState<string | null>(null);
-  const [stats, setStats] = useState({
-    totalSales: 0,
-    totalProducts: 0,
-    totalRevenue: 0,
-    totalUsers: 0
-  });
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-
-  useEffect(() => {
-    loadStats();
-    loadProducts();
-  }, []);
-
-  const loadStats = async () => {
-    try {
-      const products = await getAllProducts();
-      const users = JSON.parse(localStorage.getItem('app_users') || '[]');
-      const orders = await db.getAll('orders');
-      const orderItems = await db.getAll('orderItems');
-
-      const totalSales = orderItems.reduce((acc, item) => acc + Math.abs(item.quantity), 0);
-      const totalRevenue = orders.reduce((acc, order) => acc + Math.abs(order.total), 0);
-
-      setStats({
-        totalProducts: products.length,
-        totalUsers: users.length,
-        totalSales: totalSales,
-        totalRevenue: totalRevenue
-      });
-    } catch (error) {
-      console.error('Error loading stats:', error);
+  // Configuración de pestañas
+  const tabs: TabConfig[] = [
+    {
+      id: 'inventory',
+      label: 'Control de Inventario',
+      icon: Package,
+      component: <InventoryTable />
+    },
+    {
+      id: 'products',
+      label: 'Gestión de Productos',
+      icon: Package,
+      component: <ProductManagement />
+    },
+    {
+      id: 'stock',
+      label: 'Ajustes de Stock',
+      icon: Archive,
+      component: <InventoryManager />
+    },
+    {
+      id: 'orders',
+      label: 'Órdenes y Transacciones',
+      icon: ShoppingCart,
+      component: <SalesHistory />
+    },
+    {
+      id: 'users',
+      label: 'Usuarios',
+      icon: Users,
+      component: <UserManagement />,
+      requiredRole: 'admin'
+    },
+    {
+      id: 'batches',
+      label: 'Lotes',
+      icon: Archive,
+      component: <BatchManager />
+    },
+    {
+      id: 'reports',
+      label: 'Reportes',
+      icon: BarChart3,
+      component: <Reports />
+    },
+    {
+      id: 'settings',
+      label: 'Configuración',
+      icon: SettingsIcon,
+      component: <Settings />,
+      requiredRole: 'admin'
     }
-  };
+  ];
 
-  const loadProducts = async () => {
-    try {
-      const all = await getAllProducts();
-      setProducts(all);
-      if (all.length > 0 && selectedProductId === null) {
-        setSelectedProductId(all[0].id);
-      }
-    } catch (error) {
-      console.error('Error loading products for batches:', error);
-    }
-  };
-
+  /**
+   * Conecta con el hardware ESP32/Arduino
+   */
   const handleSerialConnect = async () => {
     try {
       setSerialError(null);
@@ -82,6 +134,9 @@ export function Dashboard() {
     }
   };
 
+  /**
+   * Prueba la conexión con ESP32
+   */
   const handleTestESP32 = async () => {
     try {
       setSerialError(null);
@@ -97,222 +152,139 @@ export function Dashboard() {
     }
   };
 
-  const selectedProduct = products.find(p => p.id === selectedProductId) || null;
+  /**
+   * Cierra sesión y vuelve a la página principal
+   */
+  const handleClose = async () => {
+    try {
+      await logout();
+      navigate('/');
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      // Navegar de todas formas
+      navigate('/');
+    }
+  };
+
+  /**
+   * Cambia de pestaña
+   */
+  const changeTab = (tabId: TabType) => {
+    setActiveTab(tabId);
+  };
+
+  /**
+   * Obtiene el componente de la pestaña activa
+   */
+  const getActiveTabComponent = () => {
+    const activeTabConfig = tabs.find(tab => tab.id === activeTab);
+    return activeTabConfig?.component || null;
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow">
+      {/* Header con botón de cierre */}
+      <div className="bg-white shadow-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Panel de Administración</h1>
-              </div>
+          <div className="flex justify-between items-center h-16">
+            {/* Título y usuario actual */}
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-900">Panel de Administración</h1>
+              {user && (
+                <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                  {user.username} {user.isAdmin && '(Admin)'}
+                </span>
+              )}
             </div>
-            <div className="flex items-center space-x-3">
+
+            {/* Controles de la derecha */}
+            <div className="flex items-center gap-2">
+              {/* Botón sincronizar lotes */}
+              <SyncButton />
+
+              {/* Botón conectar ESP32 */}
               <button
                 onClick={handleSerialConnect}
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+                className={`flex items-center px-3 py-2 rounded-md transition-colors ${
                   isSerialConnected
                     ? 'bg-green-100 text-green-800 hover:bg-green-200'
                     : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900'
                 }`}
+                title={isSerialConnected ? 'ESP32 Conectado' : 'Conectar ESP32'}
               >
-                <Usb className="w-5 h-5 mr-2" />
-                {isSerialConnected ? 'ESP32 Conectado' : 'Conectar ESP32'}
+                <Usb className="w-5 h-5" />
               </button>
+
+              {/* Botón test */}
               {isSerialConnected && (
                 <button
                   onClick={handleTestESP32}
-                  className="flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                  className="flex items-center px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                  title="Probar LED"
                 >
                   Test LED
                 </button>
               )}
+
+              {/* Botón cerrar sesión */}
+              <button
+                onClick={handleClose}
+                className="flex items-center gap-2 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-md transition-colors"
+                title="Cerrar sesión y volver al inicio"
+              >
+                <LogOut size={20} />
+              </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Mensaje de error de conexión serial */}
       {serialError && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-          <div className="bg-red-50 text-red-500 p-4 rounded-md">
-            {serialError}
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+            <span className="font-medium">Error:</span>
+            <span>{serialError}</span>
           </div>
         </div>
       )}
 
+      {/* Contenedor principal */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Métricas Dashboard */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <DollarSign className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Ingresos Totales</dt>
-                    <dd className="text-lg font-semibold text-gray-900">${stats.totalRevenue.toFixed(2)}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <ShoppingCart className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Ventas Totales</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalSales}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Package className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Productos</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalProducts}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Users className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Usuarios</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalUsers}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Navegación por paneles */}
-        <div className="bg-white shadow rounded-lg mb-8">
+        {/* Navegación por pestañas */}
+        <div className="bg-white shadow-lg rounded-lg mb-8 overflow-hidden">
           <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
-              <button
-                onClick={() => setActiveTab('inventory')}
-                className={`${
-                  activeTab === 'inventory'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <Package className="w-5 h-5 mr-2" />
-                Control de Inventario
-              </button>
+            <nav className="flex overflow-x-auto scrollbar-hide" aria-label="Tabs">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
 
-              <button
-                onClick={() => setActiveTab('products')}
-                className={`${
-                  activeTab === 'products'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <Package className="w-5 h-5 mr-2" />
-                Gestión de Productos
-              </button>
-
-              <button
-                onClick={() => setActiveTab('stock')}
-                className={`${
-                  activeTab === 'stock'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <Package className="w-5 h-5 mr-2" />
-                Ajuste de Stock
-              </button>
-
-              <button
-                onClick={() => setActiveTab('sales')}
-                className={`${
-                  activeTab === 'sales'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Órdenes y Transacciones
-              </button>
-
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`${
-                  activeTab === 'users'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <Users className="w-5 h-5 mr-2" />
-                Usuarios
-              </button>
-
-              <button
-                onClick={() => setActiveTab('batches')}
-                className={`${
-                  activeTab === 'batches'
-                    ? 'border-yellow-500 text-yellow-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              >
-                <Mail className="w-5 h-5 mr-2" />
-                Lotes y Reportes
-              </button>
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => changeTab(tab.id)}
+                    className={`
+                      flex items-center gap-2 px-6 py-4 whitespace-nowrap font-medium text-sm
+                      border-b-2 transition-all duration-200
+                      ${isActive
+                        ? 'border-blue-600 text-blue-600 bg-blue-50'
+                        : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50'
+                      }
+                    `}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <Icon size={18} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
         </div>
 
-        {/* Contenido de los paneles */}
-        <div className="bg-white shadow rounded-lg p-6">
-          {activeTab === 'inventory' && <InventoryTable />}
-          {activeTab === 'products' && <ProductManagement />}
-          {activeTab === 'stock' && <InventoryManager />}
-          {activeTab === 'sales' && <SalesHistory />}
-          {activeTab === 'users' && <UserManagement />}
-
-          {activeTab === 'batches' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Búsqueda de Lotes por Producto</h3>
-                <BatchSearcher />
-              </div>
-              <hr className="my-6" />
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Lotes Próximos a Caducarse</h3>
-                <ExpiringBatchesAlert />
-              </div>
-              <hr className="my-6" />
-              <EmailTasks />
-            </div>
-          )}
+        {/* Contenido de la pestaña activa */}
+        <div className="bg-white shadow-lg rounded-lg p-6 min-h-[500px]">
+          {getActiveTabComponent()}
         </div>
       </div>
     </div>

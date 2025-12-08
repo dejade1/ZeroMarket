@@ -84,6 +84,17 @@ class AuthService {
         });
     }
 
+    async register(username: string, email: string, password: string): Promise<{ user: User }> {
+        return this.request<{ user: User }>('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({
+                username: sanitizeString(username),
+                email: sanitizeEmail(email),
+                password: password,
+            }),
+        });
+    }
+
     async logout(): Promise<void> {
         await this.request('/api/auth/logout', {
             method: 'POST',

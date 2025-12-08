@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reset Stock</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        #status {
+            font-size: 18px;
+            margin: 20px 0;
+        }
+        .loading {
+            color: #667eea;
+        }
+        .success {
+            color: #10b981;
+        }
+        .error {
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Resetear Stock</h1>
+        <div id="status" class="loading">Procesando...</div>
+    </div>
+
+    <script>
+        async function resetAllStock() {
+            const statusEl = document.getElementById('status');
+
+            try {
+                statusEl.textContent = '📦 Abriendo base de datos...';
+
+                const request = indexedDB.open('InventoryDB', 1);
+
+                request.onsuccess = async (event) => {
+                    const db = event.target.result;
+                    statusEl.textContent = '📊 Obteniendo productos...';
+
+                    const transaction = db.transaction(['products'], 'readwrite');
+                    const productsStore = transaction.objectStore('products');
+                    const getAllRequest = productsStore.getAll();
+
+                    getAllRequest.onsuccess = () => {
+                        const products = getAllRequest.result;
+                        statusEl.textContent = `📦 Actualizando ${products.length} productos...`;
+
+                        products.forEach(product => {
+                            product.stock = 0;
+                            product.updatedAt = new Date();
+                            productsStore.put(product);
+                        });
+
+                        transaction.oncomplete = () => {
+                            statusEl.className = 'success';
+                            statusEl.textContent = `✅ Stock de ${products.length} productos actualizado a 0`;
+
+                            setTimeout(() => {
+                                statusEl.textContent = '🔄 Redirigiendo a la página principal...';
+                                window.location.href = 'http://localhost:5173';
+                            }, 2000);
+                        };
+                    };
+
+                    getAllRequest.onerror = () => {
+                        statusEl.className = 'error';
+                        statusEl.textContent = '❌ Error al obtener productos';
+                    };
+                };
+
+                request.onerror = () => {
+                    statusEl.className = 'error';
+                    statusEl.textContent = '❌ Error al abrir la base de datos';
+                };
+            } catch (error) {
+                statusEl.className = 'error';
+                statusEl.textContent = '❌ Error: ' + error.message;
+            }
+        }
+
+        // Ejecutar automáticamente al cargar
+        window.onload = resetAllStock;
+    </script>
+</body>
+</html>

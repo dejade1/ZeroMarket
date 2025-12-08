@@ -29,6 +29,7 @@ export const authService = {
             headers: {
                 'Content-Type': 'application/json',
             },
+            credentials: 'include', // ✅ IMPORTANTE: Envía cookies httpOnly
             body: JSON.stringify({ username, password }),
         });
 
@@ -44,13 +45,14 @@ export const authService = {
     /**
      * Registrar nuevo usuario
      */
-    async register(username: string, email: string, password: string): Promise<User> {
+    async register(username: string, email: string, password: string, isAdmin?: boolean): Promise<User> {
         const response = await fetch(`${API_URL}/auth/register`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ username, email, password }),
+            credentials: 'include', // ✅ IMPORTANTE: Envía cookies httpOnly
+            body: JSON.stringify({ username, email, password, isAdmin: isAdmin || false }),
         });
 
         if (!response.ok) {
@@ -68,6 +70,7 @@ export const authService = {
     async logout(): Promise<void> {
         const response = await fetch(`${API_URL}/auth/logout`, {
             method: 'POST',
+            credentials: 'include', // ✅ IMPORTANTE: Envía cookies httpOnly
         });
 
         if (!response.ok) {
@@ -86,6 +89,7 @@ export const authService = {
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include', // ✅ IMPORTANTE: Envía cookies httpOnly
             });
 
             if (!response.ok) {

@@ -212,7 +212,7 @@ export function InventoryManager() {
       });
 
       await loadProducts();
-      setSuccess('Stock y lote actualizados correctamente. Ventas reseteadas a 0.');
+      setSuccess('Stock y lote actualizados correctamente. Ventas del producto reseteadas a 0.');
       setFormData({
         productId: 0,
         quantity: 1,

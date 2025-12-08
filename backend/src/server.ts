@@ -25,6 +25,7 @@ import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
+import emailRoutes from './routes/emailRoutes';
 
 // ==================== CONFIGURACIÓN ====================
 
@@ -124,9 +125,16 @@ app.use(generalLimiter);
 // Rate limiting para autenticación (más estricto)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5, // Solo 5 intentos de login
-    message: 'Demasiados intentos de login, intenta más tarde',
+    max: process.env.NODE_ENV === 'production' ? 5 : 50, // 5 en producción, 50 en desarrollo
+    handler: (req: Request, res: Response) => {
+        res.status(429).json({
+            error: 'Demasiados intentos, intenta más tarde',
+            retryAfter: 900 // 15 minutos en segundos
+        });
+    },
     skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // ==================== TIPOS ====================
@@ -278,7 +286,7 @@ app.post('/api/auth/register', authLimiter, registerValidation, async (req: Requ
             return res.status(400).json({ errors: errors.array() });
         }
 
-        const { username, email, password } = req.body;
+        const { username, email, password, isAdmin } = req.body;
 
         // Verificar si el usuario ya existe
         const existingUser = await prisma.user.findFirst({
@@ -303,7 +311,7 @@ app.post('/api/auth/register', authLimiter, registerValidation, async (req: Requ
                 username,
                 email,
                 passwordHash,
-                isAdmin: false,
+                isAdmin: isAdmin || false, // Permitir crear admins desde el frontend
             },
             select: {
                 id: true,
@@ -531,11 +539,86 @@ app.get('/api/auth/me', authenticateToken, async (req: AuthRequest, res: Respons
     }
 });
 
-// ==================== RUTAS PROTEGIDAS (EJEMPLO) ====================
+// ==================== RUTAS DE GESTIÓN DE USUARIOS ====================
+
+/**
+ * GET /api/users
+ * Obtiene todos los usuarios (requiere autenticación)
+ */
+app.get('/api/users', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                isAdmin: true,
+                createdAt: true,
+                lastLogin: true,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+
+        // Devolver array directamente (no objeto con propiedad users)
+        res.json(users);
+
+    } catch (error) {
+        console.error('[ERROR] Get users failed:', error);
+        res.status(500).json({ error: 'Error al obtener usuarios' });
+    }
+});
+
+/**
+ * DELETE /api/users/:id
+ * Elimina un usuario (requiere autenticación)
+ */
+app.delete('/api/users/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = parseInt(req.params.id);
+
+        if (isNaN(userId)) {
+            return res.status(400).json({ error: 'ID de usuario inválido' });
+        }
+
+        // No permitir que un usuario se elimine a sí mismo
+        if (req.user!.userId === userId) {
+            return res.status(403).json({ error: 'No puedes eliminar tu propia cuenta' });
+        }
+
+        // Verificar que el usuario existe
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // Eliminar todos los refresh tokens del usuario
+        await prisma.refreshToken.deleteMany({
+            where: { userId: userId },
+        });
+
+        // Eliminar el usuario
+        await prisma.user.delete({
+            where: { id: userId },
+        });
+
+        console.log(`[SECURITY] User deleted: ${user.username} (ID: ${userId}) by ${req.user?.username}`);
+
+        res.json({ message: 'Usuario eliminado exitosamente' });
+
+    } catch (error) {
+        console.error('[ERROR] Delete user failed:', error);
+        res.status(500).json({ error: 'Error al eliminar usuario' });
+    }
+});
 
 /**
  * GET /api/admin/users
- * Obtiene todos los usuarios (solo admin)
+ * Obtiene todos los usuarios (solo admin) - DEPRECATED, usar /api/users
  */
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
     try {
@@ -557,6 +640,13 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req: AuthReq
         res.status(500).json({ error: 'Error al obtener usuarios' });
     }
 });
+
+// ==================== EMAIL & REPORTS ROUTES ====================
+
+/**
+ * Rutas de email y reportes (solo admin)
+ */
+app.use('/api/admin', authenticateToken, requireAdmin, emailRoutes);
 
 // ==================== MANEJO DE ERRORES ====================
 

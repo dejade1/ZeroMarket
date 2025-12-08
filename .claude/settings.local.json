@@ -4,7 +4,22 @@
       "Bash(git fetch:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(test:*)",
+      "Bash(node test-registration.js:*)",
+      "Bash(dir:*)",
+      "Bash(npx prisma:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(taskkill:*)",
+      "Bash(del test-registration.js)",
+      "Bash(start http://localhost:5173)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(start brave:*)"
     ],
     "deny": [],
     "ask": []

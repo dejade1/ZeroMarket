@@ -29,25 +29,29 @@ model RefreshToken {
 }
 
 model Product {
-  id          Int      @id @default(autoincrement())
-  title       String
-  description String?
-  price       Float
-  stock       Int      @default(0)
-  unit        String
-  image       String?
-  rating      Float    @default(0)
-  category    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  title        String
+  description  String?
+  price        Float
+  stock        Int      @default(0)
+  initialStock Int?     // Stock inicial de referencia
+  unit         String
+  image        String?
+  rating       Float    @default(0)
+  category     String?
+  sales        Int      @default(0) // Total de unidades vendidas
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  batches     Batch[]
-  orderItems  OrderItem[]
+  batches          Batch[]
+  orderItems       OrderItem[]
+  stockAdjustments StockAdjustment[]
 
   // ✅ OPTIMIZACIÓN: Índices para búsquedas comunes
   @@index([title])    // Para búsquedas por nombre
   @@index([category]) // Para filtrado por categoría
   @@index([stock])    // Para queries de stock bajo
+  @@index([sales])    // Para reportes de productos más vendidos
 }
 
 model Batch {
@@ -85,4 +89,22 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Float
+}
+
+model StockAdjustment {
+  id             Int      @id @default(autoincrement())
+  productId      Int
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  adjustmentType String   // manual, restock, correction, damage, count
+  quantityBefore Int
+  quantityAfter  Int
+  difference     Int
+  note           String?
+  userId         String?
+  timestamp      DateTime @default(now())
+
+  // ✅ OPTIMIZACIÓN: Índices para reportes
+  @@index([productId, timestamp]) // Para historial por producto
+  @@index([timestamp])            // Para reportes por fecha
+  @@index([adjustmentType])       // Para filtrar por tipo
 }

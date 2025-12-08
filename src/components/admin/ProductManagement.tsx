@@ -239,6 +239,7 @@ export function ProductManagement() {
                     <option value="Frutas">Frutas</option>
                     <option value="Verduras">Verduras</option>
                     <option value="Bebidas">Bebidas</option>
+                    <option value="Licores">Licores</option>
                     <option value="Panadería">Panadería</option>
                     <option value="Snacks">Snacks</option>
                     <option value="Condimentos">Condimentos</option>
