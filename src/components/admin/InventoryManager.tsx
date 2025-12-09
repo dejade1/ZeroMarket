@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Minus, Save } from 'lucide-react';
+import { Plus, Minus, Save, AlertTriangle } from 'lucide-react';
 import { getAllProducts, updateStock, type Product } from '../../lib/inventory';
 import { db } from '../../lib/inventory';
 import {
@@ -18,7 +18,7 @@ export function InventoryManager() {
   const [formData, setFormData] = useState<{
     productId: number;
     quantity: number;
-    type: 'in' | 'out';
+    type: 'in' | 'out' | 'delete';
     note: string;
     newPrice: string;
   }>({
@@ -189,6 +189,47 @@ export function InventoryManager() {
           userId: localStorage.getItem('currentUser') || 'system',
           timestamp: new Date()
         });
+      } else if (formData.type === 'delete') {
+        // Confirmación antes de eliminar
+        const product = await db.products.get(productId);
+        if (!product) {
+          setError('Producto no encontrado');
+          return;
+        }
+
+        // Eliminar todos los lotes del producto primero
+        const batches = await getBatchesByProduct(productId);
+        for (const batch of batches) {
+          if (batch.id) {
+            await db.batches.delete(batch.id);
+          }
+        }
+
+        // Registrar ajuste de eliminación
+        await db.stockAdjustments.add({
+          productId,
+          adjustmentType: 'damage',
+          quantityBefore: product.stock,
+          quantityAfter: 0,
+          difference: -product.stock,
+          note: formData.note || 'Producto eliminado del inventario',
+          userId: localStorage.getItem('currentUser') || 'system',
+          timestamp: new Date()
+        });
+
+        // Eliminar el producto
+        await db.products.delete(productId);
+
+        await loadProducts();
+        setSuccess(`Producto "${product.title}" eliminado correctamente del inventario.`);
+        setFormData({
+          productId: 0,
+          quantity: 1,
+          type: 'in',
+          note: '',
+          newPrice: ''
+        });
+        return; // Salir temprano, no necesitamos actualizar precio
       }
 
       // Actualiza precio si cambió
@@ -278,42 +319,61 @@ export function InventoryManager() {
           </label>
           <select
             value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value as 'in' | 'out' })}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value as 'in' | 'out' | 'delete' })}
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
           >
             <option value="in">Entrada</option>
             <option value="out">Salida</option>
+            <option value="delete">Eliminar Producto</option>
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Cantidad
-          </label>
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => setFormData(prev => ({ ...prev, quantity: Math.max(1, prev.quantity - 1) }))}
-              className="p-2 rounded-md bg-gray-100 hover:bg-gray-200"
-            >
-              <Minus className="w-4 h-4" />
-            </button>
-            <input
-              type="number"
-              min="1"
-              value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-              className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => setFormData(prev => ({ ...prev, quantity: prev.quantity + 1 }))}
-              className="p-2 rounded-md bg-gray-100 hover:bg-gray-200"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+        {formData.type === 'delete' && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4">
+            <div className="flex items-start">
+              <AlertTriangle className="h-5 w-5 text-red-400 mr-3 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-medium text-red-800">
+                  Advertencia: Eliminación Permanente
+                </h3>
+                <p className="mt-1 text-sm text-red-700">
+                  Esta acción eliminará completamente el producto del inventario, incluyendo todos sus lotes asociados. Esta operación no se puede deshacer.
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {formData.type !== 'delete' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cantidad
+            </label>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, quantity: Math.max(1, prev.quantity - 1) }))}
+                className="p-2 rounded-md bg-gray-100 hover:bg-gray-200"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <input
+                type="number"
+                min="1"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
+                className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, quantity: prev.quantity + 1 }))}
+                className="p-2 rounded-md bg-gray-100 hover:bg-gray-200"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {formData.type === 'in' && (
           <>
@@ -363,20 +423,22 @@ export function InventoryManager() {
           </div>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Nuevo Precio Unitario ($)
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={formData.newPrice}
-            onChange={(e) => setFormData({ ...formData, newPrice: e.target.value })}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
-            placeholder="Dejar vacío para mantener el precio actual"
-          />
-        </div>
+        {formData.type !== 'delete' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nuevo Precio Unitario ($)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={formData.newPrice}
+              onChange={(e) => setFormData({ ...formData, newPrice: e.target.value })}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
+              placeholder="Dejar vacío para mantener el precio actual"
+            />
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -393,10 +455,14 @@ export function InventoryManager() {
 
         <button
           type="submit"
-          className="flex items-center justify-center w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-medium py-2 px-4 rounded-md transition-colors"
+          className={`flex items-center justify-center w-full font-medium py-2 px-4 rounded-md transition-colors ${
+            formData.type === 'delete'
+              ? 'bg-red-600 hover:bg-red-700 text-white'
+              : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900'
+          }`}
         >
           <Save className="w-5 h-5 mr-2" />
-          Guardar Ajuste
+          {formData.type === 'delete' ? 'Eliminar Producto' : 'Guardar Ajuste'}
         </button>
       </form>
 

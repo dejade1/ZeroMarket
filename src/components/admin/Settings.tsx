@@ -174,15 +174,14 @@ export function Settings() {
     setEmailStatus({ type: null, message: '' });
 
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch('http://localhost:3000/api/admin/email/test', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include', // Envía cookies automáticamente
         body: JSON.stringify({
-          recipientEmail: settings.adminEmails[0]
+          email: settings.adminEmails[0]
         })
       });
 
@@ -214,15 +213,14 @@ export function Settings() {
     setEmailStatus({ type: null, message: '' });
 
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch(`http://localhost:3000/api/admin/reports/${reportType}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include', // Envía cookies automáticamente
         body: JSON.stringify({
-          recipientEmails: settings.adminEmails
+          emails: settings.adminEmails
         })
       });
 
