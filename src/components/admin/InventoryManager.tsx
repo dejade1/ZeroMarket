@@ -6,6 +6,7 @@ import {
   addBatch,
   getBatchesByProduct,
   updateBatchQuantity,
+    generateBatchCode,
   Batch
 } from '../../lib/batch-service';
 import { registerStockAdjustment } from '../../lib/stock-adjustment-service';
@@ -51,7 +52,7 @@ export function InventoryManager() {
           .map(word => word.substr(0, 2))
           .join('')
           .substr(0, 8);
-        setBatchCode(prefijo + '-' + Math.floor(1000 + Math.random()*9000));
+        setBatchCode(prefijo + '-' + await generateBatchCode(formData.productId, prod.title));
       }
     }
     // Cuando es salida, cargar lotes del producto seleccionado
