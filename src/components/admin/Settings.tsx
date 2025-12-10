@@ -26,6 +26,7 @@ import {
   CheckCircle,
   XCircle
 } from 'lucide-react';
+import { formatExpiryDate, isExpiryDateSoon } from '../../lib/batchCodeGenerator';
 
 interface AppSettings {
   // Generales
