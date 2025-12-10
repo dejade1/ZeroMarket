@@ -18,7 +18,7 @@ export function ProductManagement() {
     price: '',
     stock: '',
     unit: '',
-    image: '',
+    image: '',,
     rating: '5.0',
     category: '',
     slot: '',
