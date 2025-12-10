@@ -25,7 +25,7 @@ export function ProductManagement() {
     beltDistance: ''
     }
   });
-                                                 const [expiryDate, setExpiryDate] = useState('');
+    const [expiryDate, setExpiryDate] = useState('');
       const [expiryDateError, setExpiryDateError] = useState('');
 
   useEffect(() => {
