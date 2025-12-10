@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Image as ImageIcon, Edit2, Upload } from 'lucide-react';
 import { getAllProducts, type Product } from '../../lib/inventory';
 import { db } from '../../lib/inventory';
-import { generateBatchCode } from '../../lib/batch-service';
-import { ProductEditModal } from './ProductEditModal';
+import { generateBatchCode, isValidExpiryDate, formatExpiryDate } from '../../lib/batchCodeGenerator';import { ProductEditModal } from './ProductEditModal';
 
 export function ProductManagement() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -24,6 +23,8 @@ export function ProductManagement() {
     category: '',
     slot: '',
     beltDistance: ''
+      const [expiryDate, setExpiryDate] = useState('');
+      const [expiryDateError, setExpiryDateError] = useState('');
   });
 
   useEffect(() => {
