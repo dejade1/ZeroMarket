@@ -6,6 +6,9 @@
 // URL base del API (ajustar según entorno)
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+// 🐞 DEBUG: Verificar que el archivo se carga
+console.log('🔥 auth-service.ts LOADED - API_URL:', API_URL);
+
 // Tipos
 export interface User {
     id: number;
@@ -24,7 +27,10 @@ export const authService = {
      * Iniciar sesión
      */
     async login(username: string, password: string): Promise<User> {
-        const response = await fetch(`${API_URL}/auth/login`, {
+        const fullUrl = `${API_URL}/auth/login`;
+        console.log('🔍 [LOGIN] Calling:', fullUrl);
+        
+        const response = await fetch(fullUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -46,7 +52,10 @@ export const authService = {
      * Registrar nuevo usuario
      */
     async register(username: string, email: string, password: string, isAdmin?: boolean): Promise<User> {
-        const response = await fetch(`${API_URL}/auth/register`, {
+        const fullUrl = `${API_URL}/auth/register`;
+        console.log('🔍 [REGISTER] Calling:', fullUrl);
+        
+        const response = await fetch(fullUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -68,7 +77,10 @@ export const authService = {
      * Cerrar sesión
      */
     async logout(): Promise<void> {
-        const response = await fetch(`${API_URL}/auth/logout`, {
+        const fullUrl = `${API_URL}/auth/logout`;
+        console.log('🔍 [LOGOUT] Calling:', fullUrl);
+        
+        const response = await fetch(fullUrl, {
             method: 'POST',
             credentials: 'include', // ✅ IMPORTANTE: Envía cookies httpOnly
         });
@@ -84,7 +96,10 @@ export const authService = {
      */
     async checkAuth(): Promise<User | null> {
         try {
-            const response = await fetch(`${API_URL}/auth/me`, {
+            const fullUrl = `${API_URL}/auth/me`;
+            console.log('🔍 [CHECK_AUTH] Calling:', fullUrl);
+            
+            const response = await fetch(fullUrl, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -103,3 +118,8 @@ export const authService = {
         }
     },
 };
+
+// Force HMR
+if (import.meta.hot) {
+    import.meta.hot.accept();
+}
