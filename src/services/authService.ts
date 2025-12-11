@@ -1,8 +1,9 @@
 import { ValidationError, NetworkError, AuthenticationError } from '../utils/errorHandler';
 import { sanitizeString, sanitizeEmail } from '../utils/validation';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-const REQUEST_TIMEOUT = 10000; // ✅ Timeout de 10 segundos para requests
+// ⚠️ TEMPORAL: URLs hardcodeadas para debugging
+const API_BASE = 'http://localhost:3000/api';
+const REQUEST_TIMEOUT = 10000;
 
 export interface LoginCredentials {
     username: string;
@@ -21,14 +22,17 @@ class AuthService {
         endpoint: string,
         options: RequestInit = {}
     ): Promise<T> {
-        // ✅ Agregado timeout a requests
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
+        // 🐞 DEBUG: Log de la URL completa
+        const fullUrl = `${API_BASE}${endpoint}`;
+        console.log('🔍 [DEBUG] Calling:', fullUrl);
+
         try {
-            const response = await fetch(`${API_URL}${endpoint}`, {
+            const response = await fetch(fullUrl, {
                 ...options,
-                credentials: 'include', // Importante para cookies httpOnly
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
                     ...options.headers,
@@ -66,7 +70,6 @@ class AuthService {
             }
 
             if (error instanceof TypeError || (error as Error).name === 'AbortError') {
-                // Error de red o timeout
                 throw new NetworkError('No se pudo conectar con el servidor. Verifica que el backend esté corriendo.');
             }
 
@@ -75,7 +78,7 @@ class AuthService {
     }
 
     async login(credentials: LoginCredentials): Promise<{ user: User }> {
-        return this.request<{ user: User }>('/api/auth/login', {
+        return this.request<{ user: User }>('/auth/login', {
             method: 'POST',
             body: JSON.stringify({
                 username: sanitizeString(credentials.username),
@@ -85,7 +88,7 @@ class AuthService {
     }
 
     async register(username: string, email: string, password: string): Promise<{ user: User }> {
-        return this.request<{ user: User }>('/api/auth/register', {
+        return this.request<{ user: User }>('/auth/register', {
             method: 'POST',
             body: JSON.stringify({
                 username: sanitizeString(username),
@@ -96,30 +99,26 @@ class AuthService {
     }
 
     async logout(): Promise<void> {
-        await this.request('/api/auth/logout', {
+        await this.request('/auth/logout', {
             method: 'POST',
         });
     }
 
-    // ✅ MEJORADO: Mejor manejo de errores
     async getCurrentUser(): Promise<User | null> {
         try {
-            const data = await this.request<{ user: User }>('/api/auth/me');
+            const data = await this.request<{ user: User }>('/auth/me');
             return data.user;
         } catch (error) {
-            // Solo retornar null si es 401 (no autenticado)
             if (error instanceof AuthenticationError) {
                 return null;
             }
-            // Otros errores (red, servidor) se loguean pero no rompen
             console.error('Error fetching current user:', error);
             return null;
         }
     }
 
-    // ✅ AGREGADO: Método refreshToken faltante (llamado por useAuth.ts)
     async refreshToken(): Promise<void> {
-        await this.request('/api/auth/refresh', {
+        await this.request('/auth/refresh', {
             method: 'POST',
         });
     }
