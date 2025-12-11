@@ -29,6 +29,9 @@ interface Transaction {
   items?: (OrderItem & { product: Product | undefined })[];
 }
 
+// Imagen SVG placeholder como data URI (no requiere conexión a internet)
+const PLACEHOLDER_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIGZpbGw9IiNFNUU3RUIiLz48cGF0aCBkPSJNMjAgMTVDMTguMzQzMSAxNSAxNyAxNi4zNDMxIDE3IDE4QzE3IDE5LjY1NjkgMTguMzQzMSAyMSAyMCAyMUMyMS42NTY5IDIxIDIzIDE5LjY1NjkgMjMgMThDMjMgMTYuMzQzMSAyMS42NTY5IDE1IDIwIDE1Wk0xMyAxMkMxMi40NDc3IDEyIDEyIDEyLjQ0NzcgMTIgMTNWMjdDMTIgMjcuNTUyMyAxMi40NDc3IDI4IDEzIDI4SDI3QzI3LjU1MjMgMjggMjggMjcuNTUyMyAyOCAyN1YxM0MyOCAxMi40NDc3IDI3LjU1MjMgMTIgMjcgMTJIMTNaTTI2IDI2SDE0VjE0SDI2VjI2WiIgZmlsbD0iIzlDQTNCMCIvPjwvc3ZnPg==';
+
 export function SalesHistory() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -382,7 +385,7 @@ export function SalesHistory() {
                           {transaction.items.map((item) => {
                             const product = item.product;
                             const productTitle = product?.title || 'Producto eliminado';
-                            const productImage = product?.image || 'https://via.placeholder.com/40?text=N/A';
+                            const productImage = product?.image || PLACEHOLDER_IMAGE;
                             
                             return (
                               <div key={item.id} className="flex justify-between items-center text-sm">
@@ -393,7 +396,7 @@ export function SalesHistory() {
                                     className="h-6 w-6 rounded-full object-cover mr-2"
                                     onError={(e) => {
                                       const target = e.target as HTMLImageElement;
-                                      target.src = 'https://via.placeholder.com/40?text=N/A';
+                                      target.src = PLACEHOLDER_IMAGE;
                                     }}
                                   />
                                   <span className={`${product ? 'text-gray-900' : 'text-gray-500 italic'}`}>
