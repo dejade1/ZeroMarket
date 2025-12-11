@@ -9,6 +9,7 @@
  * ✅ Configuración de hardware (ESP32/Arduino)
  * ✅ Preferencias de usuario
  * ✅ Gestión de seguridad
+ * ✅ Integración con Brevo para enviar emails de prueba
  */
 
 import React, { useState, useEffect } from 'react';
@@ -27,6 +28,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { formatExpiryDate, isExpiryDateSoon } from '../../lib/batchCodeGenerator';
+import { emailService } from '../../services/emailService';
 
 interface AppSettings {
   // Generales
@@ -82,6 +84,7 @@ export function Settings() {
   }>({ type: null, message: '' });
   const [sendingTest, setSendingTest] = useState(false);
   const [sendingReport, setSendingReport] = useState<string | null>(null);
+  const [isBrevoConfigured, setIsBrevoConfigured] = useState(false);
 
   useEffect(() => {
     // Cargar configuración guardada
@@ -89,6 +92,9 @@ export function Settings() {
     if (savedSettings) {
       setSettings(JSON.parse(savedSettings));
     }
+
+    // Verificar configuración de Brevo
+    setIsBrevoConfigured(emailService.isConfigured());
   }, []);
 
   /**
@@ -163,7 +169,7 @@ export function Settings() {
   };
 
   /**
-   * Envía un email de prueba
+   * Envía un email de prueba usando Brevo
    */
   const handleSendTestEmail = async () => {
     if (settings.adminEmails.length === 0) {
@@ -171,38 +177,46 @@ export function Settings() {
       return;
     }
 
+    if (!isBrevoConfigured) {
+      setEmailStatus({ 
+        type: 'error', 
+        message: 'Configure Brevo primero. Agregue VITE_BREVO_API_KEY y VITE_EMAIL_FROM en su archivo .env' 
+      });
+      return;
+    }
+
     setSendingTest(true);
     setEmailStatus({ type: null, message: '' });
 
     try {
-      const response = await fetch('http://localhost:3000/api/admin/email/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include', // Envía cookies automáticamente
-        body: JSON.stringify({
-          email: settings.adminEmails[0]
-        })
-      });
+      const success = await emailService.sendTestEmail(settings.adminEmails[0]);
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setEmailStatus({ type: 'success', message: `Email de prueba enviado a ${settings.adminEmails[0]}` });
+      if (success) {
+        setEmailStatus({ 
+          type: 'success', 
+          message: `✅ Email de prueba enviado exitosamente a ${settings.adminEmails[0]}. Revisa tu bandeja de entrada.` 
+        });
       } else {
-        setEmailStatus({ type: 'error', message: data.message || 'Error al enviar email' });
+        setEmailStatus({ 
+          type: 'error', 
+          message: '❌ Error al enviar el email. Verifica tu configuración de Brevo en la consola del navegador.' 
+        });
       }
     } catch (error) {
-      setEmailStatus({ type: 'error', message: 'Error de conexión con el servidor' });
+      console.error('Error sending test email:', error);
+      setEmailStatus({ 
+        type: 'error', 
+        message: `❌ Error: ${error instanceof Error ? error.message : 'Error desconocido'}` 
+      });
     } finally {
       setSendingTest(false);
-      setTimeout(() => setEmailStatus({ type: null, message: '' }), 5000);
+      setTimeout(() => setEmailStatus({ type: null, message: '' }), 8000);
     }
   };
 
   /**
    * Envía un reporte CSV por email
+   * NOTA: Esta funcionalidad requiere un backend para generar los CSVs
    */
   const handleSendCSVReport = async (reportType: 'most-sold' | 'negative-diff' | 'adjustments') => {
     if (settings.adminEmails.length === 0) {
@@ -214,26 +228,13 @@ export function Settings() {
     setEmailStatus({ type: null, message: '' });
 
     try {
-      const response = await fetch(`http://localhost:3000/api/admin/reports/${reportType}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include', // Envía cookies automáticamente
-        body: JSON.stringify({
-          emails: settings.adminEmails
-        })
+      // TODO: Implementar generación y envío de reportes CSV
+      setEmailStatus({ 
+        type: 'error', 
+        message: 'Funcionalidad de reportes CSV aún no implementada. Próximamente...' 
       });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setEmailStatus({ type: 'success', message: `Reporte enviado a ${settings.adminEmails.length} email(s)` });
-      } else {
-        setEmailStatus({ type: 'error', message: data.message || 'Error al enviar reporte' });
-      }
     } catch (error) {
-      setEmailStatus({ type: 'error', message: 'Error de conexión con el servidor' });
+      setEmailStatus({ type: 'error', message: 'Error al enviar reporte' });
     } finally {
       setSendingReport(null);
       setTimeout(() => setEmailStatus({ type: null, message: '' }), 5000);
@@ -367,10 +368,28 @@ export function Settings() {
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Notificaciones</h3>
 
+              {/* Brevo configuration status */}
+              {!isBrevoConfigured && (
+                <div className="p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-yellow-900">Brevo no configurado</p>
+                      <p className="text-sm text-yellow-800 mt-1">
+                        Para enviar emails, configura <code className="bg-yellow-100 px-2 py-0.5 rounded">VITE_BREVO_API_KEY</code> y <code className="bg-yellow-100 px-2 py-0.5 rounded">VITE_EMAIL_FROM</code> en tu archivo .env
+                      </p>
+                      <p className="text-xs text-yellow-700 mt-2">
+                        🔑 Obtén tu API Key en: <a href="https://app.brevo.com/settings/keys/api" target="_blank" rel="noopener noreferrer" className="underline font-semibold">Brevo Dashboard</a>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Status message */}
               {emailStatus.type && (
                 <div className={`p-3 rounded-lg flex items-center gap-2 ${
-                  emailStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                  emailStatus.type === 'success' ? 'bg-green-50 text-green-700 border-2 border-green-200' : 'bg-red-50 text-red-700 border-2 border-red-200'
                 }`}>
                   {emailStatus.type === 'success' ? <CheckCircle size={18} /> : <XCircle size={18} />}
                   <span className="text-sm">{emailStatus.message}</span>
@@ -508,7 +527,7 @@ export function Settings() {
                 {settings.adminEmails.length > 0 && (
                   <button
                     onClick={handleSendTestEmail}
-                    disabled={sendingTest}
+                    disabled={sendingTest || !isBrevoConfigured}
                     className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
                     <Send size={18} />
