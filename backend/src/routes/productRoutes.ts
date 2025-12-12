@@ -347,7 +347,7 @@ router.delete('/products/:id', requireAdmin, async (req: Request, res: Response)
 router.patch('/:id/sales', async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
-    const { sales, stock } = req.body;
+    const { sales, dailySales, stock } = req.body;
 
     if (isNaN(productId)) {
       return res.status(400).json({
@@ -365,6 +365,11 @@ router.patch('/:id/sales', async (req: Request, res: Response) => {
 
     // Preparar datos a actualizar
     const updateData: any = { sales };
+
+    // Si se proporciona dailySales, también actualizarlo
+    if (typeof dailySales === 'number' && dailySales >= 0) {
+      updateData.dailySales = dailySales;
+    }
 
     // Si se proporciona stock, también actualizarlo
     if (typeof stock === 'number' && stock >= 0) {

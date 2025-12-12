@@ -28,7 +28,8 @@ export interface Product {
   category: string;
   slot?: number;
   beltDistance?: number;
-  sales?: number;
+  sales?: number;       // Ventas totales acumuladas (NUNCA se resetea)
+  dailySales?: number;  // Ventas diarias (se resetea al ajustar stock)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -152,14 +153,17 @@ export async function createOrder(items: OrderItem[]): Promise<number> {
       // Consumir inventario FIFO
       await consumeBatchesFIFO(item.productId, item.quantity);
 
-      // Incrementar contador de ventas del producto (solo en IndexedDB por ahora)
+      // Incrementar AMBOS contadores de ventas del producto
       const product = await db.products.get(item.productId);
       if (product) {
         const currentSales = product.sales || 0;
+        const currentDailySales = product.dailySales || 0;
         const newSales = currentSales + item.quantity;
+        const newDailySales = currentDailySales + item.quantity;
 
         await db.products.update(item.productId, {
-          sales: newSales,
+          sales: newSales,          // Ventas totales (nunca se resetea)
+          dailySales: newDailySales, // Ventas diarias (se resetea al ajustar stock)
           updatedAt: new Date()
         });
       }

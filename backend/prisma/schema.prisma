@@ -39,7 +39,8 @@ model Product {
   image        String?
   rating       Float    @default(0)
   category     String?
-  sales        Int      @default(0) // Total de unidades vendidas
+  sales        Int      @default(0) // Total de unidades vendidas (NUNCA se resetea - para ingresos totales)
+  dailySales   Int      @default(0) // Ventas diarias (se resetea al ajustar stock - para reportes diarios)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

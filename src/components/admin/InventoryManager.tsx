@@ -10,6 +10,7 @@ import {
   Batch
 } from '../../lib/batch-service';
 import { registerStockAdjustment } from '../../lib/stock-adjustment-service';
+import { syncProductToBackend } from '../../lib/sync-to-backend';
 
 export function InventoryManager() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -247,14 +248,19 @@ export function InventoryManager() {
         }
       }
 
-      // Resetear ventas a 0 cuando se actualiza el stock
+      // Resetear SOLO ventas diarias a 0 cuando se actualiza el stock
+      // Las ventas totales (sales) NUNCA se resetean
       await db.products.update(productId, {
-        sales: 0,
+        dailySales: 0,
         updatedAt: new Date()
       });
 
       await loadProducts();
-      setSuccess('Stock y lote actualizados correctamente. Ventas del producto reseteadas a 0.');
+
+      // Sincronizar automáticamente al backend
+      await syncProductToBackend(productId);
+
+      setSuccess('Stock y lote actualizados correctamente. Ventas diarias reseteadas a 0.');
       setFormData({
         productId: 0,
         quantity: 1,

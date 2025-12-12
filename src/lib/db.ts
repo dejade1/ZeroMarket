@@ -22,11 +22,15 @@ export interface Product {
   image: string;
   rating: number;
   category: string;
-  
+
+  // CAMPOS DE VENTAS
+  sales?: number;       // Ventas totales acumuladas (NUNCA se resetea - para ingresos totales)
+  dailySales?: number;  // Ventas diarias (se resetea al ajustar stock - para reportes diarios)
+
   // NUEVOS CAMPOS BANDA TRANSPORTADORA
   slot?: number;         // Número de banda física (1, 2, 3, etc.)
   beltDistance?: number; // Distancia en cm para llegar a posición 0.00
-  
+
   createdAt: Date;
   updatedAt: Date;
 }
