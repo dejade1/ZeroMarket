@@ -34,7 +34,8 @@ export function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/api/users', {
+      // ✅ FIX: Cambiar endpoint a /api/admin/users
+      const response = await fetch('http://localhost:3000/api/admin/users', {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -43,7 +44,9 @@ export function UserManagement() {
       });
 
       if (response.ok) {
-        const backendUsers = await response.json();
+        const data = await response.json();
+        // ✅ El backend devuelve { users: [...] }
+        const backendUsers = data.users || data;
         setUsers(backendUsers);
         console.log('[UserManagement] Usuarios cargados desde backend:', backendUsers.length);
       } else {
