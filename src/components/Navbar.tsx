@@ -68,8 +68,8 @@ export function Navbar({ onSearch, searchTerm }: NavbarProps) {
     }
   };
 
-  // Obtener puntos del usuario (por ahora mock, debería venir del backend)
-  const userPoints = user?.points || 0;
+  // Obtener puntos del usuario
+  const userPoints = user?.loyaltyPoints || 0;
 
   return (
     <>
