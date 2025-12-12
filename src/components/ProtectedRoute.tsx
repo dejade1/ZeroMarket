@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-    const { user, isAuthenticated, isLoading } = useAuth();
+    const { user, isAuthenticated, isLoading, logout } = useAuth();
     const [showLogin, setShowLogin] = useState(true);
 
     if (isLoading) {
@@ -27,8 +27,26 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
         );
     }
 
-    // ✅ NUEVO: Bloquear acceso a clientes
+    // ✅ Bloquear acceso a clientes
     if (user && user.role === 'CLIENT') {
+        /**
+         * Maneja el cambio de cuenta
+         * Hace logout completo y redirige al home
+         */
+        const handleChangeAccount = async () => {
+            try {
+                await logout();
+                // Esperar un poco para asegurar que el logout se completó
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 100);
+            } catch (error) {
+                console.error('Error al cerrar sesión:', error);
+                // Forzar redirección incluso si hay error
+                window.location.href = '/';
+            }
+        };
+
         return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
                 <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
@@ -48,10 +66,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
                                 Ir a la Tienda
                             </button>
                             <button
-                                onClick={() => {
-                                    // Logout y redirigir
-                                    window.location.href = '/';
-                                }}
+                                onClick={handleChangeAccount}
                                 className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-4 rounded-lg transition-colors"
                             >
                                 Cambiar de Cuenta
