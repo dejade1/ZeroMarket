@@ -1,15 +1,20 @@
 /**
  * COMPONENTE: AdminButton
  *
- * Botón flotante de administración que requiere autenticación
+ * Botón flotante de administración (Solo ADMIN/USER)
  *
  * CARACTERÍSTICAS:
  * ✅ Navegación con React Router
- * ✅ Autenticación requerida
- * ✅ Modal de login
+ * ✅ Autenticación requerida (ADMIN/USER solamente)
+ * ✅ Modal de login administrativo (AdminLogin)
  * ✅ Botón flotante con diseño moderno
  * ✅ Animaciones suaves
  * ✅ Accesibilidad mejorada
+ * 
+ * MODO KIOSCO:
+ * Para producción en modo kiosco, simplemente elimina este componente
+ * del layout principal para que solo quede el acceso de clientes.
+ * Los clientes usarán el botón "Cuenta" en la barra superior.
  */
 
 import React, { useState, useEffect } from 'react';
