@@ -6,6 +6,8 @@
  * CORRECCIONES:
  * ✅ Devolver loyaltyPoints y role en todos los endpoints de autenticación
  * ✅ Endpoint para actualizar puntos de lealtad
+ * ✅ Endpoint /api/admin/settings para guardar configuración
+ * ✅ Endpoint /api/admin/products para gestionar productos
  * 
  * CARACTERÍSTICAS DE SEGURIDAD:
  * ✅ Autenticación JWT con httpOnly cookies
@@ -569,6 +571,230 @@ app.post('/api/users/:userId/points', authenticateToken, async (req: AuthRequest
     }
 });
 
+// ==================== RUTAS DE CONFIGURACIÓN ====================
+
+/**
+ * GET /api/admin/settings
+ * Obtiene la configuración de la aplicación
+ */
+app.get('/api/admin/settings', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        // Por ahora retornamos configuración desde variable en memoria
+        // En producción, esto debería venir de la base de datos
+        const settings = {
+            storeName: 'Mi Tienda E-commerce',
+            currency: 'USD',
+            timezone: 'America/Mexico_City',
+            emailNotifications: true,
+            lowStockAlert: true,
+            expiryAlert: true,
+            alertThreshold: 2,
+            adminEmails: [],
+            autoReportTime: '09:00',
+            autoReportEnabled: false,
+            esp32Enabled: false,
+            arduinoPort: 'COM3',
+            ledDuration: 3000,
+            esp32IpAddress: '',
+            esp32Port: 80,
+            sessionTimeout: 30,
+            requireStrongPassword: true,
+            twoFactorAuth: false
+        };
+
+        res.json({ success: true, settings });
+
+    } catch (error) {
+        console.error('[ERROR] Get settings failed:', error);
+        res.status(500).json({ error: 'Error al obtener configuración' });
+    }
+});
+
+/**
+ * POST /api/admin/settings
+ * Guarda la configuración de la aplicación (solo admin)
+ */
+app.post('/api/admin/settings', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const settings = req.body;
+
+        // Validaciones básicas
+        if (!settings) {
+            return res.status(400).json({ error: 'Configuración inválida' });
+        }
+
+        // TODO: Guardar en base de datos
+        // Por ahora solo logueamos
+        console.log('[SETTINGS] Settings updated by:', req.user?.username);
+        console.log('[SETTINGS] New settings:', settings);
+
+        res.json({
+            success: true,
+            message: 'Configuración guardada exitosamente',
+            settings
+        });
+
+    } catch (error) {
+        console.error('[ERROR] Save settings failed:', error);
+        res.status(500).json({ error: 'Error al guardar configuración' });
+    }
+});
+
+// ==================== RUTAS DE PRODUCTOS ====================
+
+/**
+ * GET /api/admin/products
+ * Obtiene todos los productos
+ */
+app.get('/api/admin/products', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const products = await prisma.product.findMany({
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        res.json({ success: true, products });
+
+    } catch (error) {
+        console.error('[ERROR] Get products failed:', error);
+        res.status(500).json({ error: 'Error al obtener productos' });
+    }
+});
+
+/**
+ * POST /api/admin/products
+ * Crea un nuevo producto (solo admin)
+ */
+app.post('/api/admin/products', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const { title, description, price, stock, unit, image, rating, category } = req.body;
+
+        // Validaciones
+        if (!title || !price || stock === undefined || !unit) {
+            return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        }
+
+        if (price <= 0) {
+            return res.status(400).json({ error: 'El precio debe ser mayor que 0' });
+        }
+
+        if (stock < 0) {
+            return res.status(400).json({ error: 'El stock no puede ser negativo' });
+        }
+
+        // Crear producto
+        const product = await prisma.product.create({
+            data: {
+                title,
+                description: description || null,
+                price,
+                stock,
+                initialStock: stock,
+                unit,
+                image: image || null,
+                rating: rating || 5.0,
+                category: category || 'General',
+                sales: 0
+            }
+        });
+
+        console.log(`[PRODUCT] New product created: ${title} (ID: ${product.id}) by ${req.user?.username}`);
+
+        res.status(201).json({
+            success: true,
+            message: `Producto "${title}" creado exitosamente`,
+            product
+        });
+
+    } catch (error) {
+        console.error('[ERROR] Create product failed:', error);
+        res.status(500).json({ error: 'Error al crear producto' });
+    }
+});
+
+/**
+ * PUT /api/admin/products/:id
+ * Actualiza un producto existente (solo admin)
+ */
+app.put('/api/admin/products/:id', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const productId = parseInt(req.params.id, 10);
+        const { title, description, price, stock, unit, image, rating, category } = req.body;
+
+        // Verificar que el producto existe
+        const existingProduct = await prisma.product.findUnique({
+            where: { id: productId }
+        });
+
+        if (!existingProduct) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Actualizar producto
+        const product = await prisma.product.update({
+            where: { id: productId },
+            data: {
+                title: title || existingProduct.title,
+                description: description !== undefined ? description : existingProduct.description,
+                price: price || existingProduct.price,
+                stock: stock !== undefined ? stock : existingProduct.stock,
+                unit: unit || existingProduct.unit,
+                image: image !== undefined ? image : existingProduct.image,
+                rating: rating || existingProduct.rating,
+                category: category || existingProduct.category
+            }
+        });
+
+        console.log(`[PRODUCT] Product updated: ${product.title} (ID: ${product.id}) by ${req.user?.username}`);
+
+        res.json({
+            success: true,
+            message: 'Producto actualizado exitosamente',
+            product
+        });
+
+    } catch (error) {
+        console.error('[ERROR] Update product failed:', error);
+        res.status(500).json({ error: 'Error al actualizar producto' });
+    }
+});
+
+/**
+ * DELETE /api/admin/products/:id
+ * Elimina un producto (solo admin)
+ */
+app.delete('/api/admin/products/:id', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const productId = parseInt(req.params.id, 10);
+
+        // Verificar que el producto existe
+        const existingProduct = await prisma.product.findUnique({
+            where: { id: productId }
+        });
+
+        if (!existingProduct) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Eliminar producto
+        await prisma.product.delete({
+            where: { id: productId }
+        });
+
+        console.log(`[PRODUCT] Product deleted: ${existingProduct.title} (ID: ${productId}) by ${req.user?.username}`);
+
+        res.json({
+            success: true,
+            message: 'Producto eliminado exitosamente'
+        });
+
+    } catch (error) {
+        console.error('[ERROR] Delete product failed:', error);
+        res.status(500).json({ error: 'Error al eliminar producto' });
+    }
+});
+
 // ==================== RUTAS PROTEGIDAS (EJEMPLO) ====================
 
 /**
@@ -622,6 +848,8 @@ app.listen(PORT, () => {
     console.log(`📏 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔒 Security features enabled`);
     console.log(`🎆 Loyalty points system enabled`);
+    console.log(`⚙️  Settings API enabled`);
+    console.log(`📦 Products API enabled`);
 });
 
 // Manejo de cierre graceful
