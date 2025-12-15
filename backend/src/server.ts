@@ -669,9 +669,10 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req: 
 
 /**
  * Rutas públicas de productos (sin autenticación)
+ * CORREGIDO: Montar en /api/admin para que /api/admin/products funcione
  */
-app.use('/api/products', productRoutes);
-console.log('📦 Public product routes registered at /api/products');
+app.use('/api/admin', productRoutes);
+console.log('📦 Product routes registered at /api/admin/products');
 
 // ==================== EMAIL & REPORTS ROUTES ====================
 
