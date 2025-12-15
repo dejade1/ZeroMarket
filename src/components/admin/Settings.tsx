@@ -43,13 +43,15 @@ interface AppSettings {
   expiryAlert: boolean;
   alertThreshold: number;
   adminEmails: string[];
-  autoReportTime: string; // Hora de envío automático de reportes (formato HH:MM)
-  autoReportEnabled: boolean; // Habilitar envío automático
+  autoReportTime: string;
+  autoReportEnabled: boolean;
 
   // Hardware
   esp32Enabled: boolean;
   arduinoPort: string;
   ledDuration: number;
+  esp32IpAddress: string;
+  esp32Port: number;
 
   // Seguridad
   sessionTimeout: number;
@@ -57,26 +59,30 @@ interface AppSettings {
   twoFactorAuth: boolean;
 }
 
-export function Settings() {
-  const [settings, setSettings] = useState<AppSettings>({
-    storeName: 'Mi Tienda E-commerce',
-    currency: 'USD',
-    timezone: 'America/Mexico_City',
-    emailNotifications: true,
-    lowStockAlert: true,
-    expiryAlert: true,
-    alertThreshold: 2,
-    adminEmails: [],
-    autoReportTime: '09:00', // 9:00 AM por defecto
-    autoReportEnabled: false,
-    esp32Enabled: false,
-    arduinoPort: 'COM3',
-    ledDuration: 3000,
-    sessionTimeout: 30,
-    requireStrongPassword: true,
-    twoFactorAuth: false
-  });
+// Valores por defecto para evitar campos undefined
+const DEFAULT_SETTINGS: AppSettings = {
+  storeName: 'Mi Tienda E-commerce',
+  currency: 'USD',
+  timezone: 'America/Mexico_City',
+  emailNotifications: true,
+  lowStockAlert: true,
+  expiryAlert: true,
+  alertThreshold: 2,
+  adminEmails: [],
+  autoReportTime: '09:00',
+  autoReportEnabled: false,
+  esp32Enabled: false,
+  arduinoPort: 'COM3',
+  ledDuration: 3000,
+  esp32IpAddress: '',
+  esp32Port: 80,
+  sessionTimeout: 30,
+  requireStrongPassword: true,
+  twoFactorAuth: false
+};
 
+export function Settings() {
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [activeSection, setActiveSection] = useState<'general' | 'notifications' | 'hardware' | 'security'>('general');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -92,7 +98,7 @@ export function Settings() {
   const [isBrevoConfigured, setIsBrevoConfigured] = useState(false);
 
   useEffect(() => {
-       // Cargar configuración desde el backend con fallback a localStorage
+    // Cargar configuración desde el backend con fallback a localStorage
     const loadSettings = async () => {
       try {
         const response = await fetch('http://localhost:3000/api/admin/settings', {
@@ -102,7 +108,11 @@ export function Settings() {
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.settings) {
-            setSettings(data.settings);
+            // Merge con defaults para asegurar que todos los campos existan
+            setSettings({
+              ...DEFAULT_SETTINGS,
+              ...data.settings
+            });
             console.log('✅ Settings cargados desde el backend');
           }
         }
@@ -111,7 +121,10 @@ export function Settings() {
         // Si falla, intentar cargar desde localStorage como fallback
         const savedSettings = localStorage.getItem('app_settings');
         if (savedSettings) {
-          setSettings(JSON.parse(savedSettings));
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...JSON.parse(savedSettings)
+          });
         }
       }
     };
@@ -511,7 +524,7 @@ export function Settings() {
                 <input
                   type="number"
                   value={settings.alertThreshold}
-                  onChange={(e) => updateSetting('alertThreshold', parseInt(e.target.value))}
+                  onChange={(e) => updateSetting('alertThreshold', parseInt(e.target.value) || 0)}
                   min="1"
                   max="100"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -596,7 +609,7 @@ export function Settings() {
                 )}
               </div>
 
-              {/* CSV Reports Section - UN SOLO BOTÓN */}
+              {/* CSV Reports Section */}
               {settings.adminEmails.length > 0 && (
                 <>
                   <hr className="my-6 border-gray-200" />
@@ -638,7 +651,6 @@ export function Settings() {
                       Configura el envío automático diario de reportes por email.
                     </p>
 
-                    {/* Enable/Disable toggle */}
                     <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Activar Envío Automático</p>
@@ -657,7 +669,6 @@ export function Settings() {
                       </label>
                     </div>
 
-                    {/* Time picker */}
                     {settings.autoReportEnabled && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -732,7 +743,7 @@ export function Settings() {
                 <input
                   type="number"
                   value={settings.ledDuration}
-                  onChange={(e) => updateSetting('ledDuration', parseInt(e.target.value))}
+                  onChange={(e) => updateSetting('ledDuration', parseInt(e.target.value) || 0)}
                   disabled={!settings.esp32Enabled}
                   min="1000"
                   max="10000"
@@ -758,7 +769,7 @@ export function Settings() {
                 <input
                   type="number"
                   value={settings.sessionTimeout}
-                  onChange={(e) => updateSetting('sessionTimeout', parseInt(e.target.value))}
+                  onChange={(e) => updateSetting('sessionTimeout', parseInt(e.target.value) || 0)}
                   min="5"
                   max="120"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
