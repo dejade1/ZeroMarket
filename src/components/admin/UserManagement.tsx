@@ -3,11 +3,11 @@ import { Trash2, UserPlus, RefreshCw, Users, Shield } from 'lucide-react';
 import { authService } from '../../lib/auth-service';
 
 // ✅ ACTUALIZADO: interface con role
-interface User {
+iinterface User {
+  id: number;  // ✅ Cambiar de string a number
   username: string;
   email: string;
   role: 'ADMIN' | 'USER' | 'CLIENT';
-  id: string;
   createdAt?: string;
   loyaltyPoints?: number;
 }
@@ -153,49 +153,49 @@ export function UserManagement() {
     }
   };
 
-  const handleDelete = async (userId: string) => {
-    if (!confirm('¿Estás seguro de que deseas eliminar este usuario?')) {
+const handleDeleteUser = async (userId: string) => {
+  if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
+    return;
+  }
+
+  try {
+    // Convertir string a número para el backend
+    const numericUserId = parseInt(userId, 10);
+    
+    if (isNaN(numericUserId)) {
+      alert('ID de usuario inválido');
       return;
     }
 
-    try {
-      try {
-        const response = await fetch(`http://localhost:3000/api/users/${userId}`, {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          setSuccess('Usuario eliminado del servidor');
-        } else {
-          throw new Error('Backend no disponible');
-        }
-      } catch (backendError) {
-        console.warn('[UserManagement] Backend no disponible, usando localStorage');
-
-        const storedUsers = JSON.parse(localStorage.getItem('app_users') || '[]');
-        const updatedUsers = storedUsers.filter((u: User) => u.id !== userId);
-        localStorage.setItem('app_users', JSON.stringify(updatedUsers));
-        setSuccess('Usuario eliminado (modo local)');
+    const response = await fetch(`http://localhost:3000/api/admin/users/${numericUserId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
       }
+    });
 
-      await loadUsers();
+    const data = await response.json();
 
-      setTimeout(() => {
-        setSuccess('');
-      }, 3000);
-
-    } catch (err) {
-      console.error('Error al eliminar usuario:', err);
-      setError('Error al eliminar el usuario');
-      setTimeout(() => {
-        setError('');
-      }, 3000);
+    if (response.ok && data.success) {
+      // Actualizar la lista de usuarios en el estado (comparar como strings)
+      setUsers(users.filter(u => u.id !== userId));
+      setSuccess(data.message || 'Usuario eliminado exitosamente');
+      
+      // Limpiar mensaje después de 3 segundos
+      setTimeout(() => setSuccess(''), 3000);
+    } else {
+      setError(data.error || 'Error al eliminar usuario');
+      setTimeout(() => setError(''), 3000);
     }
-  };
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    setError('Error al eliminar usuario. Intenta nuevamente.');
+    setTimeout(() => setError(''), 3000);
+  }
+};
+
+
 
   // ✅ NUEVO: Función para obtener colores por rol
   const getRoleBadgeClass = (role: string) => {
@@ -480,7 +480,7 @@ export function UserManagement() {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                               <button
-                                onClick={() => handleDelete(user.id)}
+                                onClick={() => handleDeleteUser(user.id)}
                                 className="text-red-600 hover:text-red-900"
                                 title="Eliminar usuario"
                               >

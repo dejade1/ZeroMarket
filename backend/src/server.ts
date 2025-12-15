@@ -612,6 +612,51 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req: AuthReq
     }
 });
 
+/**
+ * DELETE /api/admin/users/:id
+ * Elimina un usuario (solo admin)
+ */
+app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = parseInt(req.params.id, 10);
+
+        if (isNaN(userId)) {
+            return res.status(400).json({ error: 'ID de usuario inválido' });
+        }
+
+        // No permitir que el admin se elimine a sí mismo
+        if (req.user!.userId === userId) {
+            return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+        }
+
+        // Verificar que el usuario existe
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // Eliminar usuario (Prisma eliminará automáticamente registros relacionados por cascade)
+        await prisma.user.delete({
+            where: { id: userId }
+        });
+
+        console.log(`[ADMIN] Usuario eliminado: ${user.username} (ID: ${userId}) por ${req.user!.username}`);
+
+        res.json({ 
+            success: true,
+            message: `Usuario "${user.username}" eliminado exitosamente` 
+        });
+
+    } catch (error) {
+        console.error('[ERROR] Delete user failed:', error);
+        res.status(500).json({ error: 'Error al eliminar usuario' });
+    }
+});
+
+
 // ==================== PUBLIC ROUTES ====================
 
 /**
