@@ -5,9 +5,18 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { sendLowStockAlert, type LowStockProduct } from './emailService';
+import { sendLowStockAlert } from './emailService';
 
 const prisma = new PrismaClient();
+
+// Tipo para producto con stock bajo
+export interface LowStockProduct {
+  id: number;
+  title: string;
+  stock: number;
+  category?: string;
+  price: number;
+}
 
 // Configuración desde variables de entorno
 const LOW_STOCK_THRESHOLD = parseInt(process.env.LOW_STOCK_THRESHOLD || '2');
@@ -125,17 +134,29 @@ export async function sendLowStockAlertsIfNeeded(
       };
     }
 
-    // Enviar alerta
-    const result = await sendLowStockAlert(productsToAlert, emails);
+    // Enviar alertas individuales para cada producto
+    let successCount = 0;
+    for (const product of productsToAlert) {
+      const result = await sendLowStockAlert({
+        productName: product.title,
+        currentStock: product.stock,
+        threshold,
+        emails
+      });
 
-    if (result.success) {
-      // Marcar productos como alertados
-      productsToAlert.forEach((p) => markProductAsAlerted(p.id));
+      if (result.success) {
+        markProductAsAlerted(product.id);
+        successCount++;
+      }
     }
 
+    const allSuccess = successCount === productsToAlert.length;
+
     return {
-      success: result.success,
-      message: result.message,
+      success: allSuccess,
+      message: allSuccess
+        ? `Alertas enviadas exitosamente para ${successCount} productos`
+        : `Alertas enviadas para ${successCount} de ${productsToAlert.length} productos`,
       productCount: productsToAlert.length,
     };
   } catch (error) {
