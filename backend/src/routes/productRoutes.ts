@@ -4,6 +4,10 @@
  * Rutas API para gestión de productos
  * - Rutas públicas: para la tienda (sin autenticación)
  * - Rutas protegidas: para administración (requieren autenticación de admin)
+ * 
+ * NOTA: Este router se monta en /api/admin (ver server.ts)
+ * Por lo tanto las rutas aquí son relativas a /api/admin
+ * Ejemplo: /products -> /api/admin/products
  */
 
 import { Router, Request, Response } from 'express';
@@ -16,7 +20,7 @@ const prisma = new PrismaClient();
 // ==================== PUBLIC ROUTES ====================
 
 /**
- * GET /api/products/public (PÚBLICA)
+ * GET /api/admin/public (PÚBLICA)
  * Obtiene todos los productos para mostrar en la tienda
  * No requiere autenticación
  */
@@ -49,11 +53,11 @@ router.get('/public', async (_req: Request, res: Response) => {
 // ==================== ADMIN ROUTES ====================
 
 /**
- * GET /api/products/admin (admin)
+ * GET /api/admin/products (admin)
  * Obtiene todos los productos (incluyendo sin stock)
  * Requiere autenticación de administrador
  */
-router.get('/admin', authenticateToken, requireAdmin, async (_req: Request, res: Response) => {
+router.get('/products', authenticateToken, requireAdmin, async (_req: Request, res: Response) => {
   try {
     const products = await prisma.product.findMany({
       orderBy: {
@@ -77,10 +81,10 @@ router.get('/admin', authenticateToken, requireAdmin, async (_req: Request, res:
 // ==================== GET SINGLE PRODUCT ====================
 
 /**
- * GET /api/products/admin/:id
+ * GET /api/admin/products/:id
  * Obtiene un producto por ID
  */
-router.get('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+router.get('/products/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -118,10 +122,10 @@ router.get('/admin/:id', authenticateToken, requireAdmin, async (req: Request, r
 // ==================== CREATE PRODUCT ====================
 
 /**
- * POST /api/products/admin
+ * POST /api/admin/products
  * Crea un nuevo producto
  */
-router.post('/admin', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+router.post('/products', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const {
       title,
@@ -198,10 +202,10 @@ router.post('/admin', authenticateToken, requireAdmin, async (req: Request, res:
 // ==================== UPDATE PRODUCT ====================
 
 /**
- * PUT /api/products/admin/:id
+ * PUT /api/admin/products/:id
  * Actualiza un producto existente
  */
-router.put('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -294,10 +298,10 @@ router.put('/admin/:id', authenticateToken, requireAdmin, async (req: Request, r
 // ==================== DELETE PRODUCT ====================
 
 /**
- * DELETE /api/products/admin/:id
+ * DELETE /api/admin/products/:id
  * Elimina un producto
  */
-router.delete('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+router.delete('/products/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -341,7 +345,7 @@ router.delete('/admin/:id', authenticateToken, requireAdmin, async (req: Request
 });
 
 /**
- * PATCH /api/products/:id/sales (PÚBLICA para permitir sincronización desde checkout)
+ * PATCH /api/admin/:id/sales (PÚBLICA para permitir sincronización desde checkout)
  * Actualiza el contador de ventas y opcionalmente el stock de un producto
  */
 router.patch('/:id/sales', async (req: Request, res: Response) => {
