@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { requireAdmin } from '../middleware/auth';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -22,7 +21,7 @@ async function ensureDataDir() {
  * GET /api/admin/settings
  * Obtener configuración
  */
-router.get('/settings', requireAdmin, async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     await ensureDataDir();
 
@@ -66,7 +65,7 @@ router.get('/settings', requireAdmin, async (req: Request, res: Response) => {
  * POST /api/admin/settings
  * Guardar configuración
  */
-router.post('/settings', requireAdmin, async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     await ensureDataDir();
 
@@ -75,7 +74,7 @@ router.post('/settings', requireAdmin, async (req: Request, res: Response) => {
     // Guardar en archivo JSON
     await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
 
-    console.log('✅ Settings guardados correctamente');
+    console.log('✅ Settings guardados correctamente:', settings);
 
     res.json({
       success: true,
@@ -91,4 +90,3 @@ router.post('/settings', requireAdmin, async (req: Request, res: Response) => {
 });
 
 export default router;
-// force restart
