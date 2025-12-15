@@ -8,7 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { requireAdmin } from '../middleware/auth';
+import { requireAdmin, authenticateToken } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -16,7 +16,7 @@ const prisma = new PrismaClient();
 // ==================== PUBLIC ROUTES ====================
 
 /**
- * GET /api/products (PÚBLICA)
+ * GET /api/products/public (PÚBLICA)
  * Obtiene todos los productos para mostrar en la tienda
  * No requiere autenticación
  */
@@ -49,11 +49,11 @@ router.get('/public', async (_req: Request, res: Response) => {
 // ==================== ADMIN ROUTES ====================
 
 /**
- * GET /api/admin/products
+ * GET /api/products/admin (admin)
  * Obtiene todos los productos (incluyendo sin stock)
  * Requiere autenticación de administrador
  */
-router.get('/products', requireAdmin, async (_req: Request, res: Response) => {
+router.get('/admin', authenticateToken, requireAdmin, async (_req: Request, res: Response) => {
   try {
     const products = await prisma.product.findMany({
       orderBy: {
@@ -77,10 +77,10 @@ router.get('/products', requireAdmin, async (_req: Request, res: Response) => {
 // ==================== GET SINGLE PRODUCT ====================
 
 /**
- * GET /api/admin/products/:id
+ * GET /api/products/admin/:id
  * Obtiene un producto por ID
  */
-router.get('/products/:id', requireAdmin, async (req: Request, res: Response) => {
+router.get('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -118,10 +118,10 @@ router.get('/products/:id', requireAdmin, async (req: Request, res: Response) =>
 // ==================== CREATE PRODUCT ====================
 
 /**
- * POST /api/admin/products
+ * POST /api/products/admin
  * Crea un nuevo producto
  */
-router.post('/products', requireAdmin, async (req: Request, res: Response) => {
+router.post('/admin', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const {
       title,
@@ -198,10 +198,10 @@ router.post('/products', requireAdmin, async (req: Request, res: Response) => {
 // ==================== UPDATE PRODUCT ====================
 
 /**
- * PUT /api/admin/products/:id
+ * PUT /api/products/admin/:id
  * Actualiza un producto existente
  */
-router.put('/products/:id', requireAdmin, async (req: Request, res: Response) => {
+router.put('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -294,10 +294,10 @@ router.put('/products/:id', requireAdmin, async (req: Request, res: Response) =>
 // ==================== DELETE PRODUCT ====================
 
 /**
- * DELETE /api/admin/products/:id
+ * DELETE /api/products/admin/:id
  * Elimina un producto
  */
-router.delete('/products/:id', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/admin/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const productId = parseInt(req.params.id);
 
