@@ -3,7 +3,7 @@ import { Trash2, UserPlus, RefreshCw, Users, Shield } from 'lucide-react';
 import { authService } from '../../lib/auth-service';
 
 // ✅ ACTUALIZADO: interface con role
-iinterface User {
+interface User {
   id: number;  // ✅ Cambiar de string a number
   username: string;
   email: string;
