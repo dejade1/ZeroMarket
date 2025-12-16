@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Image as ImageIcon, Edit2, Upload } from 'lucide-react';
-import { getAllProducts, type Product } from '../../lib/inventory';
-import { db } from '../../lib/inventory';
-import { generateBatchCode, isValidExpiryDate, formatExpiryDate } from '../../lib/batchCodeGenerator';
+import { Search, Plus, Edit2, Upload } from 'lucide-react';
 import { ProductEditModal } from './ProductEditModal';
 
-// Tipo Product del backend
+// ==================== TIPOS ====================
+
 interface Product {
   id: number;
   title: string;
@@ -23,6 +21,8 @@ interface Product {
 }
 
 const API_URL = 'http://localhost:3000';
+
+// ==================== COMPONENTE ====================
 
 export function ProductManagement() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -42,26 +42,21 @@ export function ProductManagement() {
     unit: '',
     image: '',
     rating: '5.0',
-    category: '',
-    slot: '',
-    beltDistance: '',
-  }
-);
-  const [expiryDate, setExpiryDate] = useState('');
-  const [expiryDateError, setExpiryDateError] = useState('');
+    category: ''
+  });
 
   useEffect(() => {
     loadProducts();
   }, []);
 
   /**
-   * Carga productos desde la API del backend
+   * ✅ Carga productos desde el backend
    */
   async function loadProducts() {
     try {
       const response = await fetch(`${API_URL}/api/admin/products`, {
         method: 'GET',
-        credentials: 'include', // Importante: envía cookies de autenticación
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         }
@@ -102,7 +97,7 @@ export function ProductManagement() {
   };
 
   /**
-   * Envía el producto al backend usando la API
+   * ✅ Crea producto en el backend
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +106,7 @@ export function ProductManagement() {
     setLoading(true);
 
     try {
-      // Validaciones básicas
+      // Validaciones
       if (!newProduct.title || !newProduct.price || !newProduct.stock || !newProduct.unit) {
         setError('Todos los campos marcados con * son obligatorios');
         setLoading(false);
@@ -140,7 +135,7 @@ export function ProductManagement() {
         return;
       }
 
-      // Preparar datos para enviar al backend
+      // Preparar datos
       const productData = {
         title: newProduct.title.trim(),
         description: newProduct.description.trim() || null,
@@ -152,10 +147,10 @@ export function ProductManagement() {
         category: newProduct.category || null
       };
 
-      // Enviar a la API
+      // ✅ Enviar al backend
       const response = await fetch(`${API_URL}/api/admin/products`, {
         method: 'POST',
-        credentials: 'include', // Importante: envía cookies de autenticación
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -170,75 +165,7 @@ export function ProductManagement() {
 
       setSuccess(result.message || `Producto "${productData.title}" agregado correctamente`);
 
-      if (productData.stock < 0) {
-        setError('El stock no puede ser negativo');
-        return;
-      }
-
-      if (productData.rating < 0 || productData.rating > 5) {
-        setError('La calificación debe estar entre 0 y 5');
-        return;
-      }
-
-      // Validar slot si está presente
-      if (slotValue !== undefined) {
-        if (slotValue < 1) {
-          setError('El número de slot debe ser mayor o igual a 1');
-          return;
-        }
-        
-        const existingProduct = await db.products
-          .where('slot')
-          .equals(slotValue)
-          .first();
-        
-        if (existingProduct) {
-          setError(`El slot ${slotValue} ya está asignado al producto "${existingProduct.title}"`);
-          return;
-        }
-      }
-
-      if (beltDistanceValue !== undefined && beltDistanceValue < 0) {
-        setError('La distancia de banda no puede ser negativa');
-        return;
-      }
-
-      const productId = await db.products.add(productData);
-
-      // Si el producto tiene stock inicial, crear un lote inicial con código automático
-      if (productData.stock > 0) {
-        // Validar fecha de caducidad
-        if (!expiryDate) {
-          setError('Debe ingresar una fecha de caducidad para el lote inicial');
-          return;
-        }
-
-        if (!isValidExpiryDate(expiryDate)) {
-          setError('La fecha de caducidad debe ser futura');
-          return;
-        }
-
-        // Obtener lotes existentes del producto para generar el número de lote
-        const existingBatches = await db.batches
-          .where('productId')
-          .equals(productId as number)
-          .toArray();
-
-        // Generar código automático: Prefijo-NumLote-Fecha
-        const batchCode = generateBatchCode(productData.title, existingBatches, new Date());
-
-        await db.batches.add({
-          productId: productId as number,
-          batchCode: batchCode,
-          quantity: productData.stock,
-          expiryDate: expiryDate,
-          createdAt: new Date().toISOString()
-        });
-
-        console.log(`[Product] Lote inicial creado: ${batchCode} (${productData.stock} unidades, vence: ${expiryDate})`);
-      }
-
-      setSuccess(`Producto "${productData.title}" agregado correctamente (ID: ${productId})`);
+      // Limpiar formulario
       setNewProduct({
         title: '',
         description: '',
@@ -247,12 +174,8 @@ export function ProductManagement() {
         unit: '',
         image: '',
         rating: '5.0',
-        category: '',
-        slot: '',
-        beltDistance: '',
+        category: ''
       });
-      setExpiryDate('');
-      setExpiryDateError('');
       setImageFile(null);
       setImagePreview('');
 
@@ -279,6 +202,7 @@ export function ProductManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Formulario de Nuevo Producto */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="md:grid md:grid-cols-3 md:gap-6">
           <div className="md:col-span-1">
@@ -301,6 +225,7 @@ export function ProductManagement() {
               )}
 
               <div className="grid grid-cols-6 gap-6">
+                {/* Título */}
                 <div className="col-span-6">
                   <label htmlFor="title" className="block text-sm font-medium text-gray-700">
                     Nombre del Producto *
@@ -314,6 +239,7 @@ export function ProductManagement() {
                   />
                 </div>
 
+                {/* Descripción */}
                 <div className="col-span-6">
                   <label htmlFor="description" className="block text-sm font-medium text-gray-700">
                     Descripción
@@ -328,6 +254,7 @@ export function ProductManagement() {
                   />
                 </div>
 
+                {/* Precio */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="price" className="block text-sm font-medium text-gray-700">
                     Precio *
@@ -348,6 +275,7 @@ export function ProductManagement() {
                   </div>
                 </div>
 
+                {/* Stock */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="stock" className="block text-sm font-medium text-gray-700">
                     Stock Inicial *
@@ -361,26 +289,7 @@ export function ProductManagement() {
                   />
                 </div>
 
-                <div className="col-span-6 sm:col-span-3">
-                  <label htmlFor="expiryDate" className="block text-sm font-medium text-gray-700">
-                    Fecha de Caducidad Primer Lote *
-                  </label>
-                  <input
-                    type="date"
-                    id="expiryDate"
-                    value={expiryDate}
-                    onChange={(e) => {
-                      setExpiryDate(e.target.value);
-                      setExpiryDateError('');
-                    }}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 sm:text-sm"
-                  />
-                  {expiryDateError && (
-                    <p className="mt-1 text-sm text-red-600">{expiryDateError}</p>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500">Requerido si el stock inicial es mayor a 0</p>
-                </div>
-
+                {/* Unidad */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="unit" className="block text-sm font-medium text-gray-700">
                     Unidad de Medida *
@@ -404,9 +313,10 @@ export function ProductManagement() {
                   </select>
                 </div>
 
+                {/* Categoría */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="category" className="block text-sm font-medium text-gray-700">
-                    Categoría *
+                    Categoría
                   </label>
                   <select
                     id="category"
@@ -431,7 +341,7 @@ export function ProductManagement() {
                   </select>
                 </div>
 
-                {/* SECCIÓN IMAGEN */}
+                {/* Imagen */}
                 <div className="col-span-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Imagen del Producto
@@ -505,6 +415,7 @@ export function ProductManagement() {
         </div>
       </div>
 
+      {/* Lista de Productos */}
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg leading-6 font-medium text-gray-900">Productos Existentes</h3>
@@ -612,6 +523,7 @@ export function ProductManagement() {
         </div>
       </div>
 
+      {/* Modal de Edición */}
       {editingProduct && (
         <ProductEditModal
           product={editingProduct}
