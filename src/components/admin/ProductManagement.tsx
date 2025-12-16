@@ -16,8 +16,8 @@ interface Product {
   rating: number;
   category?: string | null;
   sales: number;
-  slot?: number | null;          // ✅ Campo de slot
-  slotDistance?: number | null;  // ✅ Campo de distancia del motor
+  slot?: number | null;          // ✅ Campo de slot (Int)
+  slotDistance?: number | null;  // ✅ Campo de distancia del motor (Float)
   createdAt: Date | string;
   updatedAt: Date | string;
 }
@@ -46,7 +46,7 @@ export function ProductManagement() {
     rating: '5.0',
     category: '',
     slot: '',          // ✅ Slot del hardware
-    slotDistance: '',  // ✅ Distancia del motor
+    slotDistance: '',  // ✅ Distancia del motor (acepta decimales)
     expiryDate: ''     // ✅ Fecha de vencimiento del primer lote
   });
 
@@ -122,7 +122,7 @@ export function ProductManagement() {
       const stock = parseInt(newProduct.stock);
       const rating = parseFloat(newProduct.rating);
       const slot = newProduct.slot ? parseInt(newProduct.slot) : null;
-      const slotDistance = newProduct.slotDistance ? parseInt(newProduct.slotDistance) : null;
+      const slotDistance = newProduct.slotDistance ? parseFloat(newProduct.slotDistance) : null;  // ✅ Float
 
       if (price <= 0) {
         setError('El precio debe ser mayor que 0');
@@ -159,8 +159,8 @@ export function ProductManagement() {
         image: newProduct.image.trim() || null,
         rating,
         category: newProduct.category || null,
-        slot,           // ✅ Enviar slot al backend
-        slotDistance,   // ✅ Enviar slotDistance al backend
+        slot,           // ✅ Int
+        slotDistance,   // ✅ Float (permite decimales)
         expiryDate: newProduct.expiryDate || null
       };
 
@@ -400,20 +400,21 @@ export function ProductManagement() {
                   <p className="mt-1 text-xs text-gray-500">Número de slot ESP32/Arduino</p>
                 </div>
 
-                {/* ✅ Distancia del Slot */}
+                {/* ✅ Distancia del Slot (acepta decimales) */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="slotDistance" className="block text-sm font-medium text-gray-700">
                     Distancia del Motor (cm)
                   </label>
                   <input
                     type="number"
+                    step="0.1"  {/* ✅ Permite decimales como 9.2 */}
                     id="slotDistance"
                     value={newProduct.slotDistance}
                     onChange={(e) => setNewProduct({ ...newProduct, slotDistance: e.target.value })}
                     className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 sm:text-sm"
-                    placeholder="10, 20, 30..."
+                    placeholder="9.2, 10.5, 15.8..."
                   />
-                  <p className="mt-1 text-xs text-gray-500">Centímetros que debe moverse el motor</p>
+                  <p className="mt-1 text-xs text-gray-500">Centímetros que debe moverse el motor (acepta decimales)</p>
                 </div>
 
                 {/* Imagen */}
@@ -585,10 +586,10 @@ export function ProductManagement() {
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            {/* ✅ Mostrar Distancia */}
+                            {/* ✅ Mostrar Distancia con decimales */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {product.slotDistance ? (
-                                <span>{product.slotDistance} cm</span>
+                                <span>{product.slotDistance.toFixed(1)} cm</span>  {/* ✅ Muestra con 1 decimal */}
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
