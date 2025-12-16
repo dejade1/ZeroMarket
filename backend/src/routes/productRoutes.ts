@@ -126,6 +126,7 @@ router.get('/products/:id', authenticateToken, requireAdmin, async (req: Request
  * POST /api/admin/products
  * Crea un nuevo producto
  * ✅ ACTUALIZADO: Si tiene stock inicial, crea automáticamente el primer lote
+ * ✅ AGREGADO: Campos slot y slotDistance para hardware
  */
 router.post('/products', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -138,7 +139,9 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
       image,
       rating,
       category,
-      expiryDate  // ✅ NUEVO: Fecha de vencimiento del primer lote
+      slot,           // ✅ NUEVO: Número de slot (hardware)
+      slotDistance,   // ✅ NUEVO: Distancia del motor en cm
+      expiryDate      // ✅ Fecha de vencimiento del primer lote
     } = req.body;
 
     // Validaciones
@@ -190,11 +193,13 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
         image: image ? image.trim() : null,
         rating: rating !== undefined ? parseFloat(rating) : 0,
         category: category ? category.trim() : null,
+        slot: slot !== undefined && slot !== null && slot !== '' ? parseInt(slot) : null,           // ✅ NUEVO
+        slotDistance: slotDistance !== undefined && slotDistance !== null && slotDistance !== '' ? parseInt(slotDistance) : null,  // ✅ NUEVO
         sales: 0
       }
     });
 
-    console.log(`✅ Producto creado: ${product.title} (ID: ${product.id})`);
+    console.log(`✅ Producto creado: ${product.title} (ID: ${product.id}, Slot: ${product.slot || 'N/A'}, Distancia: ${product.slotDistance || 'N/A'}cm)`);
 
     // ✅ CREAR PRIMER LOTE AUTOMÁTICAMENTE si tiene stock inicial
     let batchInfo = null;
@@ -234,6 +239,7 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
 /**
  * PUT /api/admin/products/:id
  * Actualiza un producto existente
+ * ✅ AGREGADO: Soporte para actualizar slot y slotDistance
  */
 router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -254,7 +260,9 @@ router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request
       unit,
       image,
       rating,
-      category
+      category,
+      slot,           // ✅ NUEVO
+      slotDistance    // ✅ NUEVO
     } = req.body;
 
     // Verificar que el producto existe
@@ -302,6 +310,8 @@ router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request
     if (image !== undefined) updateData.image = image ? image.trim() : null;
     if (rating !== undefined) updateData.rating = parseFloat(rating);
     if (category !== undefined) updateData.category = category ? category.trim() : null;
+    if (slot !== undefined) updateData.slot = slot !== null && slot !== '' ? parseInt(slot) : null;  // ✅ NUEVO
+    if (slotDistance !== undefined) updateData.slotDistance = slotDistance !== null && slotDistance !== '' ? parseInt(slotDistance) : null;  // ✅ NUEVO
 
     // Actualizar producto
     const product = await prisma.product.update({
