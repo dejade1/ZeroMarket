@@ -31,6 +31,7 @@ export function InventoryTable() {
   const [editForm, setEditForm] = useState<Partial<Product>>({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(true);
 
   // Estados para modal de ajuste
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -49,6 +50,7 @@ export function InventoryTable() {
    */
   const loadProducts = async () => {
     try {
+      setLoading(true);
       const response = await fetch(`${API_URL}/api/admin/products`, {
         method: 'GET',
         credentials: 'include',
@@ -66,6 +68,8 @@ export function InventoryTable() {
     } catch (error) {
       console.error('Error loading products:', error);
       setError('Error al cargar productos');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -109,15 +113,11 @@ export function InventoryTable() {
       setEditForm({});
       await loadProducts();
 
-      setTimeout(() => {
-        setSuccess('');
-      }, 3000);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Error saving:', error);
       setError(error instanceof Error ? error.message : 'Error al guardar los cambios');
-      setTimeout(() => {
-        setError('');
-      }, 3000);
+      setTimeout(() => setError(''), 3000);
     }
   };
 
@@ -176,20 +176,26 @@ export function InventoryTable() {
       setAdjustNote('');
       await loadProducts();
 
-      setTimeout(() => {
-        setSuccess('');
-      }, 3000);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (error: any) {
       console.error('Error adjusting stock:', error);
       setError(error.message || 'Error al ajustar stock');
-      setTimeout(() => {
-        setError('');
-      }, 3000);
+      setTimeout(() => setError(''), 3000);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col">
+      <h2 className="text-xl font-semibold mb-4">Control de Inventario</h2>
+
       {error && (
         <div className="mb-4 bg-red-50 text-red-500 p-3 rounded-md text-sm">
           {error}
@@ -200,6 +206,7 @@ export function InventoryTable() {
           {success}
         </div>
       )}
+
       <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
         <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
           <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
@@ -360,12 +367,14 @@ export function InventoryTable() {
                               <button
                                 onClick={handleSave}
                                 className="text-green-600 hover:text-green-900"
+                                title="Guardar cambios"
                               >
                                 <Save className="h-5 w-5" />
                               </button>
                               <button
                                 onClick={handleCancel}
                                 className="text-red-600 hover:text-red-900"
+                                title="Cancelar"
                               >
                                 <X className="h-5 w-5" />
                               </button>
