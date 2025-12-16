@@ -780,7 +780,7 @@ app.get('/api/admin/stock-adjustments', authenticateToken, async (req: AuthReque
         const adjustments = await prisma.stockAdjustment.findMany({
             take: limit,
             orderBy: {
-                createdAt: 'desc'
+                timestamp: 'desc'
             },
             include: {
                 product: {
