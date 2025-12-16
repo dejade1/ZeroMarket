@@ -9,14 +9,13 @@
  * ✅ Exportación a CSV
  * ✅ Estadísticas visuales
  * ✅ Auto-actualización cada 30 segundos
+ * ✅ Usa backend API (sin IndexedDB)
  */
 
 import React, { useState, useEffect } from 'react';
-import { Download, TrendingUp, DollarSign, Calendar, BarChart3, AlertTriangle, History } from 'lucide-react';
-import { db } from '../../lib/db';
-import { getAllProducts } from '../../lib/inventory';
-import { getRecentAdjustments } from '../../lib/stock-adjustment-service';
-import type { StockAdjustment } from '../../lib/db';
+import { Download, TrendingUp, DollarSign, Calendar, BarChart3, AlertTriangle } from 'lucide-react';
+
+const API_URL = 'http://localhost:3000';
 
 interface SalesReport {
   period: string;
@@ -41,11 +40,30 @@ interface ProductDifference {
   status: 'critical' | 'attention' | 'ok';
 }
 
-interface AdjustmentWithProduct extends StockAdjustment {
-  productName: string;
+type DateRange = 'day' | 'week' | 'month' | 'year';
+
+interface Order {
+  id: number;
+  total: number;
+  createdAt: string;
+  items?: OrderItem[];
 }
 
-type DateRange = 'day' | 'week' | 'month' | 'year';
+interface OrderItem {
+  id: number;
+  orderId: number;
+  productId: number;
+  quantity: number;
+  price: number;
+  productTitle?: string;
+}
+
+interface Product {
+  id: number;
+  title: string;
+  stock: number;
+  initialStock?: number | null;
+}
 
 export function Reports() {
   const [dateRange, setDateRange] = useState<DateRange>('month');
@@ -59,7 +77,6 @@ export function Reports() {
     averageOrderValue: 0
   });
   const [productDifferences, setProductDifferences] = useState<ProductDifference[]>([]);
-  const [recentAdjustments, setRecentAdjustments] = useState<AdjustmentWithProduct[]>([]);
 
   useEffect(() => {
     loadReportData();
@@ -67,7 +84,7 @@ export function Reports() {
     // Auto-refresh cada 30 segundos
     const interval = setInterval(() => {
       loadReportData();
-    }, 30000); // 30 segundos
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [dateRange]);
@@ -118,25 +135,43 @@ export function Reports() {
   };
 
   /**
-   * Carga todos los datos del reporte
+   * ✅ Carga todos los datos del reporte desde el backend
    */
   const loadReportData = async () => {
     setLoading(true);
     try {
-      const [orders, orderItems, products] = await Promise.all([
-        db.orders.toArray(),
-        db.orderItems.toArray(),
-        getAllProducts()
+      // Cargar órdenes y productos desde el backend
+      const [ordersRes, productsRes] = await Promise.all([
+        fetch(`${API_URL}/api/orders`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        }),
+        fetch(`${API_URL}/api/admin/products`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        })
       ]);
 
+      if (!ordersRes.ok || !productsRes.ok) {
+        throw new Error('Error al cargar datos');
+      }
+
+      const ordersData = await ordersRes.json();
+      const productsData = await productsRes.json();
+
+      const orders: Order[] = ordersData.orders || [];
+      const products: Product[] = productsData.products || [];
+
       // Filtrar órdenes por rango de fecha
-      const filteredOrders = orders.filter(order => isInDateRange(order.createdAt));
+      const filteredOrders = orders.filter(order => isInDateRange(new Date(order.createdAt)));
 
       // Agrupar ventas por período
       const salesByPeriod: { [key: string]: SalesReport } = {};
 
       filteredOrders.forEach(order => {
-        const period = groupByPeriod(order.createdAt);
+        const period = groupByPeriod(new Date(order.createdAt));
         if (!salesByPeriod[period]) {
           salesByPeriod[period] = {
             period,
@@ -147,16 +182,12 @@ export function Reports() {
         }
         salesByPeriod[period].revenue += order.total;
         salesByPeriod[period].orders += 1;
-      });
 
-      // Agregar unidades vendidas
-      orderItems.forEach(item => {
-        const order = filteredOrders.find(o => o.id === item.orderId);
-        if (order) {
-          const period = groupByPeriod(order.createdAt);
-          if (salesByPeriod[period]) {
+        // Contar unidades vendidas desde los items
+        if (order.items) {
+          order.items.forEach(item => {
             salesByPeriod[period].totalSales += Math.abs(item.quantity);
-          }
+          });
         }
       });
 
@@ -167,20 +198,21 @@ export function Reports() {
       // Calcular productos más vendidos
       const productSales: { [key: number]: ProductReport } = {};
 
-      orderItems.forEach(item => {
-        const order = filteredOrders.find(o => o.id === item.orderId);
-        if (order) {
-          if (!productSales[item.productId]) {
-            const product = products.find(p => p.id === item.productId);
-            productSales[item.productId] = {
-              id: item.productId,
-              name: product?.title || 'Producto desconocido',
-              sold: 0,
-              revenue: 0
-            };
-          }
-          productSales[item.productId].sold += Math.abs(item.quantity);
-          productSales[item.productId].revenue += item.price * Math.abs(item.quantity);
+      filteredOrders.forEach(order => {
+        if (order.items) {
+          order.items.forEach(item => {
+            if (!productSales[item.productId]) {
+              const product = products.find(p => p.id === item.productId);
+              productSales[item.productId] = {
+                id: item.productId,
+                name: product?.title || item.productTitle || 'Producto desconocido',
+                sold: 0,
+                revenue: 0
+              };
+            }
+            productSales[item.productId].sold += Math.abs(item.quantity);
+            productSales[item.productId].revenue += item.price * Math.abs(item.quantity);
+          });
         }
       });
 
@@ -202,8 +234,6 @@ export function Reports() {
       });
 
       // Calcular diferencias de stock
-      // Si initialStock no está definido, usar el stock actual como inicial
-      // Esto significa que el producto fue creado sin un stock inicial registrado
       const differences: ProductDifference[] = products
         .map(product => {
           const initialStock = product.initialStock !== undefined && product.initialStock !== null
@@ -220,7 +250,7 @@ export function Reports() {
           }
 
           return {
-            id: product.id!,
+            id: product.id,
             name: product.title,
             initialStock,
             currentStock: product.stock,
@@ -232,17 +262,6 @@ export function Reports() {
         .sort((a, b) => a.difference - b.difference); // Más negativo primero
 
       setProductDifferences(differences);
-
-      // Cargar historial de ajustes (últimos 30 días)
-      const adjustments = await getRecentAdjustments(30);
-      const adjustmentsWithProduct: AdjustmentWithProduct[] = adjustments.map(adj => {
-        const product = products.find(p => p.id === adj.productId);
-        return {
-          ...adj,
-          productName: product?.title || 'Producto desconocido'
-        };
-      });
-      setRecentAdjustments(adjustmentsWithProduct);
 
     } catch (error) {
       console.error('Error loading report:', error);
@@ -423,7 +442,8 @@ export function Reports() {
             </select>
             <button
               onClick={exportSalesCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              disabled={salesData.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               <Download size={18} />
               Exportar CSV
@@ -583,113 +603,6 @@ export function Reports() {
                       }`}>
                         {diff.status === 'critical' ? 'Crítico' : 'Requiere atención'}
                       </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Historial de Ajustes (Últimos 30 días) */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <History className="text-blue-500" />
-            <h3 className="text-lg font-semibold text-gray-900">Historial de Ajustes (Últimos 30 días)</h3>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Cargando datos...</p>
-          </div>
-        ) : recentAdjustments.length === 0 ? (
-          <div className="text-center py-12">
-            <History size={48} className="mx-auto text-gray-400 mb-4" />
-            <p className="text-gray-600">No hay ajustes registrados en los últimos 30 días</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Fecha
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Producto
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tipo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock Antes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock Después
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Diferencia
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Usuario
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Nota
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {recentAdjustments.map((adjustment) => (
-                  <tr key={adjustment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {new Date(adjustment.timestamp).toLocaleString('es-ES', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {adjustment.productName}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        adjustment.adjustmentType === 'manual' ? 'bg-blue-100 text-blue-800' :
-                        adjustment.adjustmentType === 'restock' ? 'bg-green-100 text-green-800' :
-                        adjustment.adjustmentType === 'damage' ? 'bg-red-100 text-red-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {adjustment.adjustmentType === 'manual' ? 'Manual' :
-                         adjustment.adjustmentType === 'restock' ? 'Reabastecimiento' :
-                         adjustment.adjustmentType === 'correction' ? 'Corrección' :
-                         adjustment.adjustmentType === 'damage' ? 'Daño' :
-                         adjustment.adjustmentType === 'count' ? 'Conteo' :
-                         adjustment.adjustmentType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {adjustment.quantityBefore}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {adjustment.quantityAfter}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${
-                        adjustment.difference < 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                      }`}>
-                        {adjustment.difference > 0 ? `+${adjustment.difference}` : adjustment.difference}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {adjustment.userId || 'system'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
-                      {adjustment.note || '-'}
                     </td>
                   </tr>
                 ))}
