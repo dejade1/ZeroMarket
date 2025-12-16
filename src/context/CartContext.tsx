@@ -40,7 +40,15 @@ type CartAction =
 interface CartContextType {
   state: CartState;
   dispatch: React.Dispatch<CartAction>;
-  checkout: () => Promise<void>;
+  checkout: (customerData: CustomerData) => Promise<void>;
+}
+
+interface CustomerData {
+  customerName: string;
+  customerEmail: string;
+  phone: string;
+  address: string;
+  paymentMethod: string;
 }
 
 // ==================== CONTEXT ====================
@@ -108,30 +116,44 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
- * ✅ Crear orden directamente en el backend
- * Sin IndexedDB, sin sincronización
+ * ✅ Crear orden con TODOS los datos necesarios
  */
-async function createOrder(items: { productId: number; quantity: number; price: number }[]): Promise<number> {
+async function createOrder(
+  items: { productId: number; quantity: number; price: number }[],
+  customerData: CustomerData,
+  total: number
+): Promise<number> {
   try {
-    console.log('📦 Creando orden en el backend...', items);
+    console.log('📦 Creando orden en el backend...');
+    console.log('Datos del cliente:', customerData);
+    console.log('Items:', items);
+    console.log('Total:', total);
 
     const response = await fetch(`${API_URL}/orders`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        customerName: customerData.customerName,
+        customerEmail: customerData.customerEmail,
+        phone: customerData.phone,
+        address: customerData.address,
+        paymentMethod: customerData.paymentMethod,
+        total,
+        items
+      }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Error desconocido' }));
-      throw new Error(errorData.message || 'Error al crear la orden');
+      const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
+      throw new Error(errorData.error || 'Error al crear la orden');
     }
 
     const data = await response.json();
     console.log('✅ Orden creada:', data);
 
-    return data.orderId;
+    return data.order.id;
   } catch (error) {
     console.error('❌ Error al crear orden:', error);
     throw error;
@@ -149,8 +171,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const { notifyPurchase } = useLedNotification();
   const { user, checkSession } = useAuth();
 
-  const checkout = useCallback(async () => {
+  const checkout = useCallback(async (customerData: CustomerData) => {
     try {
+      // Validar datos del cliente
+      if (!customerData.customerName || !customerData.customerEmail || !customerData.phone || 
+          !customerData.address || !customerData.paymentMethod) {
+        throw new Error('Todos los datos del cliente son obligatorios');
+      }
+
       const orderItems = state.items.map(item => ({
         productId: item.id,
         quantity: item.quantity,
@@ -163,8 +191,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         0
       );
 
-      // ✅ Crear la orden DIRECTAMENTE en el backend
-      const orderId = await createOrder(orderItems);
+      // ✅ Crear la orden con TODOS los datos
+      const orderId = await createOrder(orderItems, customerData, total);
 
       // ✅ NUEVO: Si el usuario está autenticado y es cliente, actualizar puntos de lealtad
       if (user && user.role === 'CLIENT') {
@@ -229,6 +257,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       } else {
         alert('Error al procesar la orden');
       }
+      throw error;
     }
   }, [state.items, notifyPurchase, user, checkSession]);
 
@@ -251,4 +280,4 @@ export function useCart() {
 
 // ==================== EXPORTS ====================
 
-export type { CartItem, CartState, CartAction, CartContextType, Product };
+export type { CartItem, CartState, CartAction, CartContextType, Product, CustomerData };
