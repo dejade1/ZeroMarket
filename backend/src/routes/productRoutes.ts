@@ -13,6 +13,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireAdmin, authenticateToken } from '../middleware/auth';
+import { createBatch } from '../services/batch.service';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -124,6 +125,7 @@ router.get('/products/:id', authenticateToken, requireAdmin, async (req: Request
 /**
  * POST /api/admin/products
  * Crea un nuevo producto
+ * ✅ ACTUALIZADO: Si tiene stock inicial, crea automáticamente el primer lote
  */
 router.post('/products', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -135,7 +137,8 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
       unit,
       image,
       rating,
-      category
+      category,
+      expiryDate  // ✅ NUEVO: Fecha de vencimiento del primer lote
     } = req.body;
 
     // Validaciones
@@ -157,6 +160,14 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
       return res.status(400).json({
         success: false,
         message: 'El stock no puede ser negativo'
+      });
+    }
+
+    // ✅ VALIDAR: Si tiene stock inicial, debe proporcionar fecha de vencimiento
+    if (stock > 0 && !expiryDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe proporcionar fecha de vencimiento para el stock inicial'
       });
     }
 
@@ -185,10 +196,29 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
 
     console.log(`✅ Producto creado: ${product.title} (ID: ${product.id})`);
 
+    // ✅ CREAR PRIMER LOTE AUTOMÁTICAMENTE si tiene stock inicial
+    let batchInfo = null;
+    if (stock > 0 && expiryDate) {
+      try {
+        const batch = await createBatch(
+          product.id,
+          parseInt(stock),
+          new Date(expiryDate),
+          'SYSTEM' // Usuario por defecto al crear producto
+        );
+        batchInfo = batch;
+        console.log(`📦 Primer lote creado automáticamente: ${batch.batchCode}`);
+      } catch (batchError) {
+        console.warn(`⚠️ No se pudo crear lote inicial: ${batchError}`);
+        // No fallar la creación del producto si falla el lote
+      }
+    }
+
     return res.status(201).json({
       success: true,
-      message: `Producto "${product.title}" creado exitosamente`,
-      product
+      message: `Producto "${product.title}" creado exitosamente${batchInfo ? ` con lote ${batchInfo.batchCode}` : ''}`,
+      product,
+      batch: batchInfo
     });
   } catch (error) {
     console.error('Error creating product:', error);
