@@ -823,7 +823,37 @@ app.delete('/api/admin/products/:id', authenticateToken, requireAdmin, async (re
         res.status(500).json({ error: 'Error al eliminar producto' });
     }
 });
+// ==================== RUTAS DE AJUSTES DE STOCK ====================
 
+/**
+ * GET /api/admin/stock-adjustments
+ * Obtiene historial de ajustes de stock
+ */
+app.get('/api/admin/stock-adjustments', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 20;
+
+        const adjustments = await prisma.stockAdjustment.findMany({
+            take: limit,
+            orderBy: {
+                createdAt: 'desc'
+            },
+            include: {
+                product: {
+                    select: {
+                        title: true
+                    }
+                }
+            }
+        });
+
+        res.json({ success: true, adjustments });
+
+    } catch (error) {
+        console.error('[ERROR] Get stock adjustments failed:', error);
+        res.status(500).json({ error: 'Error al obtener ajustes de stock' });
+    }
+});
 // ==================== RUTAS PROTEGIDAS (EJEMPLO) ====================
 
 /**
