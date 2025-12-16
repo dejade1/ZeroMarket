@@ -767,6 +767,37 @@ app.delete('/api/admin/batches/:id', authenticateToken, requireAdmin, async (req
     }
 });
 
+// ==================== RUTAS DE AJUSTES DE STOCK ====================
+
+/**
+ * GET /api/admin/stock-adjustments
+ * Obtiene historial de ajustes de stock
+ */
+app.get('/api/admin/stock-adjustments', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 20;
+
+        const adjustments = await prisma.stockAdjustment.findMany({
+            take: limit,
+            orderBy: {
+                createdAt: 'desc'
+            },
+            include: {
+                product: {
+                    select: {
+                        title: true
+                    }
+                }
+            }
+        });
+
+        res.json({ success: true, adjustments });
+
+    } catch (error) {
+        console.error('[ERROR] Get stock adjustments failed:', error);
+        res.status(500).json({ error: 'Error al obtener ajustes de stock' });
+    }
+});
 
 // ==================== RUTAS PROTEGIDAS (EJEMPLO) ====================
 
@@ -848,7 +879,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req: 
  * Montadas en /api/products para acceso público
  */
 app.use('/api/products', productRoutes);
-console.log('🛍️  Public product routes registered at /api/products');
+console.log('🛒  Public product routes registered at /api/products');
 
 /**
  * Rutas de admin de productos (requieren autenticación)
@@ -919,3 +950,4 @@ process.on('SIGINT', async () => {
 console.log(`📦 Products API enabled`);
 console.log(`🛒 Orders API enabled`);
 console.log(`📦 Batches API enabled (FIFO system)`);
+console.log(`📋 Stock Adjustments API enabled`);
