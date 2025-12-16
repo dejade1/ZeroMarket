@@ -7,26 +7,47 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password      String
+  role          String   @default("customer") // "admin" o "customer"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  Order         Order[]
+}
+
 model Product {
-  id          Int      @id @default(autoincrement())
-  title       String
-  price       Float
-  stock       Int      @default(0)
-  unit        String
-  image       String
-  rating      Float
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  OrderItem   OrderItem[]
-  StockMovement StockMovement[]
+  id              Int               @id @default(autoincrement())
+  title           String
+  description     String?
+  price           Float
+  stock           Int               @default(0)
+  initialStock    Int?              // Capacidad máxima del slot
+  unit            String
+  image           String?
+  rating          Float             @default(0)
+  category        String?
+  sales           Int               @default(0)
+  dailySales      Int               @default(0)
+  slot            Int?              // ✅ Número de slot (hardware ESP32/Arduino)
+  slotDistance    Float?            // ✅ Distancia del motor en cm (acepta decimales)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  OrderItem       OrderItem[]
+  StockAdjustment StockAdjustment[]
+  Batch           Batch[]
 }
 
 model Order {
-  id          Int      @id @default(autoincrement())
+  id          Int         @id @default(autoincrement())
+  userId      Int?
   total       Float
-  status      String   @default("pending")
-  createdAt   DateTime @default(now())
+  status      String      @default("pending")  // "pending", "completed", "cancelled"
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
   items       OrderItem[]
+  user        User?       @relation(fields: [userId], references: [id])
 }
 
 model OrderItem {
@@ -35,16 +56,27 @@ model OrderItem {
   price       Float
   orderId     Int
   productId   Int
-  order       Order    @relation(fields: [orderId], references: [id])
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product     Product  @relation(fields: [productId], references: [id])
 }
 
-model StockMovement {
+model StockAdjustment {
   id          Int      @id @default(autoincrement())
-  quantity    Int
-  type        String   // "in" or "out"
   productId   Int
+  quantity    Int      // Cantidad ajustada (positivo = entrada, negativo = salida)
+  type        String   // "restock", "sale", "adjustment", "expired"
+  reason      String?  // Razón del ajuste
+  timestamp   DateTime @default(now())
   product     Product  @relation(fields: [productId], references: [id])
+}
+
+model Batch {
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  batchCode   String   @unique  // Código único del lote
+  quantity    Int      // Cantidad inicial del lote
+  remaining   Int      // Cantidad restante
+  expiryDate  DateTime // Fecha de vencimiento
   createdAt   DateTime @default(now())
-  note        String?
+  product     Product  @relation(fields: [productId], references: [id])
 }
