@@ -105,8 +105,8 @@ app.use(cookieParser());
 
 // Rate limiting general
 const generalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 100, // 100 requests por IP
+    windowMs: 1 * 60 * 1000, // 1 minuto
+    max: 500, // 1000 requests por IP
     message: 'Demasiadas peticiones, intenta más tarde',
     standardHeaders: true,
     legacyHeaders: false,
