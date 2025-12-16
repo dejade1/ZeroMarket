@@ -33,6 +33,13 @@ import emailRoutes from './routes/emailRoutes';
 import productRoutes from './routes/productRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
+import {
+  createBatch,
+  consumeBatchesFIFO,
+  getExpiringBatches,
+  getProductBatches,
+  getBatchStockSummary
+} from './services/batch.service';
 
 // ==================== CONFIGURACIÓN ====================
 
@@ -600,26 +607,36 @@ app.post('/api/orders', async (req: Request, res: Response) => {
                 data: { customerName, customerEmail, phone, address, paymentMethod, total, status: 'PENDING' }
             });
 
-            for (const item of items) {
-                const product = await tx.product.findUnique({ where: { id: item.productId } });
-                
-                if (!product || product.stock < item.quantity) {
-                    throw new Error(`Stock insuficiente para producto ID ${item.productId}`);
-                }
-
-                await tx.orderItem.create({
-                    data: { orderId: newOrder.id, productId: item.productId, quantity: item.quantity, price: item.price }
-                });
-
-                await tx.product.update({
-                    where: { id: item.productId },
-                    data: {
-                        stock: { decrement: item.quantity },
-                        sales: { increment: item.quantity },
-                        dailySales: { increment: item.quantity }
-                    }
-                });
+           for (const item of items) {
+             const product = await tx.product.findUnique({ where: { id: item.productId } });
+    
+            if (!product || product.stock < item.quantity) {
+            throw new Error(`Stock insuficiente para producto ID ${item.productId}`);
             }
+
+             await tx.orderItem.create({
+              data: { orderId: newOrder.id, productId: item.productId, quantity: item.quantity, price: item.price }
+                });
+
+         await tx.product.update({
+           where: { id: item.productId },
+             data: {
+            stock: { decrement: item.quantity },
+            sales: { increment: item.quantity },
+            dailySales: { increment: item.quantity }
+        }
+    });
+
+    // ✅ CONSUMIR LOTES FIFO
+    try {
+        await consumeBatchesFIFO(item.productId, item.quantity);
+        console.log(`[FIFO] ✓ Lotes consumidos para producto ${item.productId}`);
+    } catch (fifoError) {
+        console.warn(`[FIFO] ⚠ Producto ${item.productId} sin lotes configurados: ${fifoError}`);
+        // No fallar la orden si el producto no tiene lotes
+    }
+}
+
 
             return await tx.order.update({
                 where: { id: newOrder.id },
@@ -658,6 +675,98 @@ app.get('/api/orders', authenticateToken, async (req: AuthRequest, res: Response
         res.status(500).json({ error: 'Error al obtener órdenes' });
     }
 });
+
+// ==================== RUTAS DE LOTES ====================
+
+app.post('/api/admin/batches', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const { productId, quantity, expiryDate } = req.body;
+        if (!productId || !quantity || !expiryDate) {
+            return res.status(400).json({ error: 'Faltan datos obligatorios' });
+        }
+        const batch = await createBatch(parseInt(productId), parseInt(quantity), new Date(expiryDate), req.user?.username);
+        res.status(201).json({ success: true, message: `Lote ${batch.batchCode} creado`, batch });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/admin/batches/product/:productId', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const batches = await getProductBatches(parseInt(req.params.productId));
+        res.json({ success: true, batches });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener lotes' });
+    }
+});
+
+app.get('/api/admin/batches/expiring', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const days = parseInt(req.query.days as string) || 7;
+        const batches = await getExpiringBatches(days);
+        res.json({ success: true, batches, threshold: `${days} días` });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener lotes por vencer' });
+    }
+});
+app.get('/api/admin/batches/product/:productId/summary', authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const productId = parseInt(req.params.productId, 10);
+        if (isNaN(productId)) {
+            return res.status(400).json({ error: 'ID de producto inválido' });
+        }
+        const summary = await getBatchStockSummary(productId);
+        res.json({ success: true, summary });
+    } catch (error) {
+        console.error('[ERROR] Get batch summary failed:', error);
+        res.status(500).json({ error: 'Error al obtener resumen de lotes' });
+    }
+});
+
+// PATCH /api/admin/batches/:id - Decrementar cantidad de lote manualmente
+app.patch('/api/admin/batches/:id', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const batchId = parseInt(req.params.id, 10);
+        const { quantity } = req.body;
+
+        if (isNaN(batchId)) {
+            return res.status(400).json({ error: 'ID de lote inválido' });
+        }
+
+        if (quantity === undefined || quantity < 0) {
+            return res.status(400).json({ error: 'Cantidad inválida' });
+        }
+
+        const batch = await prisma.batch.update({
+            where: { id: batchId },
+            data: { quantity }
+        });
+
+        console.log(`[LOTE] Actualizado: ${batch.batchCode} -> Cantidad: ${quantity}`);
+        res.json({ success: true, batch });
+    } catch (error: any) {
+        console.error('[ERROR] Update batch failed:', error);
+        res.status(500).json({ error: error.message || 'Error al actualizar lote' });
+    }
+});
+
+// DELETE /api/admin/batches/:id - Eliminar lote vacío
+
+app.delete('/api/admin/batches/:id', authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const batchId = parseInt(req.params.id, 10);
+        if (isNaN(batchId)) {
+            return res.status(400).json({ error: 'ID de lote inválido' });
+        }
+        await deleteBatch(batchId, req.user?.username);
+        res.json({ success: true, message: 'Lote eliminado exitosamente' });
+    } catch (error: any) {
+        console.error('[ERROR] Delete batch failed:', error);
+        res.status(400).json({ error: error.message || 'Error al eliminar lote' });
+    }
+});
+
+
 // ==================== RUTAS PROTEGIDAS (EJEMPLO) ====================
 
 /**
@@ -808,3 +917,4 @@ process.on('SIGINT', async () => {
 
 console.log(`📦 Products API enabled`);
 console.log(`🛒 Orders API enabled`);
+console.log(`📦 Batches API enabled (FIFO system)`);
