@@ -118,16 +118,30 @@ model Batch {
   @@index([batchCode])             // Para búsquedas por código de lote
 }
 
+// ✅ ACTUALIZADO: Order con campos completos de cliente
 model Order {
-  id        Int         @id @default(autoincrement())
-  total     Float
-  status    String      @default("completed")
-  createdAt DateTime    @default(now())
-  items     OrderItem[]
+  id             Int         @id @default(autoincrement())
+  
+  // Datos del cliente
+  customerName   String
+  customerEmail  String
+  phone          String
+  address        String
+  paymentMethod  String
+  
+  // Datos de la orden
+  total          Float
+  status         String      @default("PENDING")
+  
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  
+  items          OrderItem[]
 
   // ✅ OPTIMIZACIÓN: Índices para historial de órdenes
   @@index([createdAt]) // Para ordenar por fecha
   @@index([status])    // Para filtrar por estado
+  @@index([customerEmail]) // Para buscar por cliente
 }
 
 model OrderItem {
@@ -138,6 +152,9 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Float
+  
+  @@index([orderId])
+  @@index([productId])
 }
 
 model StockAdjustment {
