@@ -139,8 +139,8 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
       image,
       rating,
       category,
-      slot,           // ✅ NUEVO: Número de slot (hardware)
-      slotDistance,   // ✅ NUEVO: Distancia del motor en cm
+      slot,           // ✅ Número de slot (hardware)
+      slotDistance,   // ✅ Distancia del motor en cm (Float para decimales)
       expiryDate      // ✅ Fecha de vencimiento del primer lote
     } = req.body;
 
@@ -193,8 +193,8 @@ router.post('/products', authenticateToken, requireAdmin, async (req: Request, r
         image: image ? image.trim() : null,
         rating: rating !== undefined ? parseFloat(rating) : 0,
         category: category ? category.trim() : null,
-        slot: slot !== undefined && slot !== null && slot !== '' ? parseInt(slot) : null,           // ✅ NUEVO
-        slotDistance: slotDistance !== undefined && slotDistance !== null && slotDistance !== '' ? parseInt(slotDistance) : null,  // ✅ NUEVO
+        slot: slot !== undefined && slot !== null && slot !== '' ? parseInt(slot) : null,           // ✅ Int
+        slotDistance: slotDistance !== undefined && slotDistance !== null && slotDistance !== '' ? parseFloat(slotDistance) : null,  // ✅ Float para decimales
         sales: 0
       }
     });
@@ -261,8 +261,8 @@ router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request
       image,
       rating,
       category,
-      slot,           // ✅ NUEVO
-      slotDistance    // ✅ NUEVO
+      slot,           // ✅ Int
+      slotDistance    // ✅ Float
     } = req.body;
 
     // Verificar que el producto existe
@@ -310,8 +310,8 @@ router.put('/products/:id', authenticateToken, requireAdmin, async (req: Request
     if (image !== undefined) updateData.image = image ? image.trim() : null;
     if (rating !== undefined) updateData.rating = parseFloat(rating);
     if (category !== undefined) updateData.category = category ? category.trim() : null;
-    if (slot !== undefined) updateData.slot = slot !== null && slot !== '' ? parseInt(slot) : null;  // ✅ NUEVO
-    if (slotDistance !== undefined) updateData.slotDistance = slotDistance !== null && slotDistance !== '' ? parseInt(slotDistance) : null;  // ✅ NUEVO
+    if (slot !== undefined) updateData.slot = slot !== null && slot !== '' ? parseInt(slot) : null;  // ✅ Int
+    if (slotDistance !== undefined) updateData.slotDistance = slotDistance !== null && slotDistance !== '' ? parseFloat(slotDistance) : null;  // ✅ Float
 
     // Actualizar producto
     const product = await prisma.product.update({
