@@ -21,17 +21,18 @@ import {
   Usb,
   Settings as SettingsIcon,
   Archive,
-  LogOut
+  LogOut,
+  ClipboardList
 } from 'lucide-react';
 
 // Componentes de pestañas (✅ REFACTORIZADOS)
 import { UserManagement } from './UserManagement';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
+import { InventoryTable } from './InventoryTable';
 import { Settings } from './Settings';
 
 // ❌ Componentes pendientes de refactoring (comentados temporalmente)
-// import { InventoryTable } from './InventoryTable';
 // import { SalesHistory } from './SalesHistory';
 // import { Reports } from './Reports';
 // import BatchManager from './BatchManager';
@@ -40,8 +41,8 @@ import { Settings } from './Settings';
 import { ledService } from '../../services/LedService';
 
 // Tipo de pestaña
-type TabType = 'products' | 'stock' | 'users' | 'settings';
-// ❌ Deshabilitados: 'inventory' | 'orders' | 'batches' | 'reports'
+type TabType = 'inventory' | 'products' | 'stock' | 'users' | 'settings';
+// ❌ Deshabilitados: 'orders' | 'batches' | 'reports'
 
 // Definición de pestañas
 interface TabConfig {
@@ -63,6 +64,13 @@ export function Dashboard() {
 
   // ✅ Configuración de pestañas con control de acceso
   const tabs: TabConfig[] = [
+    {
+      id: 'inventory',
+      label: 'Control de Inventario',
+      icon: ClipboardList,
+      component: <InventoryTable />,
+      allowedRoles: ['ADMIN'] // Solo ADMIN
+    },
     {
       id: 'products',
       label: 'Gestión de Productos',
