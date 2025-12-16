@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, AlertTriangle, Plus, Calendar, BarChart3, Trash2 } from 'lucide-react';
+import { Package, AlertTriangle, Calendar, BarChart3, Trash2, Info } from 'lucide-react';
 
 // ==================== TIPOS ====================
 
@@ -48,12 +48,6 @@ export function BatchManagement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [formData, setFormData] = useState({
-    productId: 0,
-    quantity: 0,
-    expiryDate: ''
-  });
 
   useEffect(() => {
     loadProducts();
@@ -123,64 +117,6 @@ export function BatchManagement() {
 
   // ==================== FUNCIONES DE ACCIÓN ====================
 
-  async function handleCreateBatch(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-
-    if (!formData.productId || !formData.quantity || !formData.expiryDate) {
-      setError('Todos los campos son obligatorios');
-      return;
-    }
-
-    if (formData.quantity <= 0) {
-      setError('La cantidad debe ser mayor a 0');
-      return;
-    }
-
-    const expiryDate = new Date(formData.expiryDate);
-    if (expiryDate <= new Date()) {
-      setError('La fecha de vencimiento debe ser futura');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/api/admin/batches`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productId: formData.productId,
-          quantity: formData.quantity,
-          expiryDate: formData.expiryDate
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al crear lote');
-      }
-
-      setSuccess(`Lote ${data.batch.batchCode} creado exitosamente con ${formData.quantity} unidades`);
-      setFormData({ productId: 0, quantity: 0, expiryDate: '' });
-      setShowCreateForm(false);
-
-      // Recargar datos
-      await loadProducts();
-      if (selectedProductId > 0) {
-        await loadProductBatches(selectedProductId);
-        await loadBatchSummary(selectedProductId);
-      }
-      await loadExpiringBatches();
-    } catch (error: any) {
-      setError(error.message || 'Error al crear lote');
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleDeleteBatch(batchId: number, batchCode: string) {
     if (!confirm(`¿Está seguro de eliminar el lote ${batchCode}?`)) {
       return;
@@ -203,6 +139,7 @@ export function BatchManagement() {
         await loadProductBatches(selectedProductId);
         await loadBatchSummary(selectedProductId);
       }
+      await loadExpiringBatches();
     } catch (error: any) {
       setError(error.message || 'Error al eliminar lote');
     }
@@ -234,18 +171,32 @@ export function BatchManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Gestión de Lotes</h2>
-          <p className="text-sm text-gray-600 mt-1">Control FIFO y alertas de vencimiento</p>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Gestión de Lotes</h2>
+        <p className="text-sm text-gray-600 mt-1">Monitoreo de lotes, FIFO automático y alertas de vencimiento</p>
+      </div>
+
+      {/* ✅ INFORMACIÓN IMPORTANTE */}
+      <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
+        <div className="flex">
+          <div className="flex-shrink-0">
+            <Info className="h-5 w-5 text-blue-400" />
+          </div>
+          <div className="ml-3">
+            <h3 className="text-sm font-medium text-blue-800">
+              📦 Los lotes se crean automáticamente
+            </h3>
+            <div className="mt-2 text-sm text-blue-700">
+              <ul className="list-disc list-inside space-y-1">
+                <li><strong>Primer lote:</strong> Se crea al agregar un producto nuevo en "Gestión de Productos"</li>
+                <li><strong>Lotes siguientes:</strong> Se crean al reabastecer en "Ajustes de Stock"</li>
+                <li><strong>Nomenclatura:</strong> ArrPreBl-1-16122025 (Producto-Secuencia-Fecha)</li>
+                <li><strong>FIFO:</strong> En ventas se consumen automáticamente los lotes más próximos a vencer</li>
+                <li><strong>Retiros manuales:</strong> Se selecciona el lote específico en "Ajustes de Stock"</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="inline-flex items-center px-4 py-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-medium rounded-md transition-colors"
-        >
-          <Plus className="h-5 w-5 mr-2" />
-          Crear Lote
-        </button>
       </div>
 
       {/* Mensajes */}
@@ -258,88 +209,6 @@ export function BatchManagement() {
       {success && (
         <div className="bg-green-50 text-green-600 p-4 rounded-md">
           {success}
-        </div>
-      )}
-
-      {/* Formulario Crear Lote */}
-      {showCreateForm && (
-        <div className="bg-white shadow rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-4">Crear Nuevo Lote</h3>
-          <form onSubmit={handleCreateBatch} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Producto */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Producto *
-                </label>
-                <select
-                  value={formData.productId}
-                  onChange={(e) => setFormData({ ...formData, productId: parseInt(e.target.value) })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
-                  required
-                >
-                  <option value={0}>Seleccionar producto</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title} (Stock: {p.stock})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Cantidad */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cantidad *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formData.quantity || ''}
-                  onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
-                  placeholder="50"
-                  required
-                />
-              </div>
-
-              {/* Fecha de Vencimiento */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Fecha de Vencimiento *
-                </label>
-                <input
-                  type="date"
-                  value={formData.expiryDate}
-                  onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
-                  min={new Date().toISOString().split('T')[0]}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50"
-              >
-                {loading ? 'Creando...' : 'Crear Lote'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium rounded-md"
-              >
-                Cancelar
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500">
-              📝 El código del lote se generará automáticamente (ej: ArrPreBl-1-15122025)
-            </p>
-          </form>
         </div>
       )}
 
@@ -361,7 +230,7 @@ export function BatchManagement() {
                     return (
                       <li key={batch.id}>
                         <strong>{batch.batchCode}</strong> - {batch.product?.title} ({batch.quantity} unidades)
-                        - Vence en <strong>{days} días</strong>
+                        - Vence en <strong>{days} días</strong> ({formatDate(batch.expiryDate)})
                       </li>
                     );
                   })}
@@ -494,7 +363,7 @@ export function BatchManagement() {
                           </button>
                         )}
                         {batch.quantity > 0 && (
-                          <span className="text-gray-400 text-xs">Activo</span>
+                          <span className="text-green-600 text-xs font-medium">Activo</span>
                         )}
                       </td>
                     </tr>
