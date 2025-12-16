@@ -1,14 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { getAllProducts, db } from '../../lib/inventory';
 import { Pencil, Save, X, Settings } from 'lucide-react';
-import type { Product } from '../../lib/inventory';
-import { registerStockAdjustment } from '../../lib/stock-adjustment-service';
+import { useAuth } from '../../context/AuthContext';
+
+// ==================== TIPOS ====================
+
+interface Product {
+  id: number;
+  title: string;
+  description?: string | null;
+  price: number;
+  stock: number;
+  initialStock?: number | null;
+  unit: string;
+  image?: string | null;
+  rating: number;
+  category?: string | null;
+  sales: number;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+const API_URL = 'http://localhost:3000';
+
+// ==================== COMPONENTE ====================
 
 export function InventoryTable() {
+  const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Partial<Product>>({});
-  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -18,21 +38,35 @@ export function InventoryTable() {
   const [adjustQuantity, setAdjustQuantity] = useState('');
   const [adjustNote, setAdjustNote] = useState('');
 
+  const isAdmin = user?.role === 'ADMIN';
+
   useEffect(() => {
     loadProducts();
-    checkAdminStatus();
   }, []);
 
-  const checkAdminStatus = () => {
-    const users = JSON.parse(localStorage.getItem('app_users') || '[]');
-    const currentUser = localStorage.getItem('currentUser');
-    const user = users.find((u: any) => u.username === currentUser);
-    setIsAdmin(user?.isAdmin || false);
-  };
-
+  /**
+   * ✅ Carga productos desde el backend
+   */
   const loadProducts = async () => {
-    const data = await getAllProducts();
-    setProducts(data);
+    try {
+      const response = await fetch(`${API_URL}/api/admin/products`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al cargar productos');
+      }
+
+      const data = await response.json();
+      setProducts(data.products || []);
+    } catch (error) {
+      console.error('Error loading products:', error);
+      setError('Error al cargar productos');
+    }
   };
 
   const handleEdit = (product: Product) => {
@@ -40,20 +74,36 @@ export function InventoryTable() {
     setEditForm(product);
   };
 
+  /**
+   * ✅ Guarda cambios en el backend
+   */
   const handleSave = async () => {
     if (!editingId || !editForm) return;
 
     try {
-      const updatedProduct = {
-        ...editForm,
-        id: editingId,
-        updatedAt: new Date(),
+      const updateData = {
+        title: editForm.title,
+        image: editForm.image,
         price: Number(editForm.price),
         stock: Number(editForm.stock),
         rating: Number(editForm.rating)
-      } as Product;
+      };
 
-      await db.put('products', updatedProduct);
+      const response = await fetch(`${API_URL}/api/admin/products/${editingId}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updateData)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Error al guardar');
+      }
+
       setSuccess('Producto actualizado correctamente');
       setEditingId(null);
       setEditForm({});
@@ -63,7 +113,8 @@ export function InventoryTable() {
         setSuccess('');
       }, 3000);
     } catch (error) {
-      setError('Error al guardar los cambios');
+      console.error('Error saving:', error);
+      setError(error instanceof Error ? error.message : 'Error al guardar los cambios');
       setTimeout(() => {
         setError('');
       }, 3000);
@@ -82,6 +133,9 @@ export function InventoryTable() {
     }));
   };
 
+  /**
+   * ✅ Ajusta stock en el backend
+   */
   const handleAdjustStock = async () => {
     if (!adjustingProduct || !adjustingProduct.id) return;
 
@@ -100,12 +154,20 @@ export function InventoryTable() {
         return;
       }
 
-      await registerStockAdjustment(
-        adjustingProduct.id,
-        newStock,
-        adjustNote || undefined,
-        'manual'
-      );
+      const response = await fetch(`${API_URL}/api/admin/products/${adjustingProduct.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ stock: newStock })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Error al ajustar stock');
+      }
 
       setSuccess(`Stock ajustado correctamente: ${adjustment > 0 ? '+' : ''}${adjustment} unidades`);
       setAdjustModalOpen(false);
@@ -118,6 +180,7 @@ export function InventoryTable() {
         setSuccess('');
       }, 3000);
     } catch (error: any) {
+      console.error('Error adjusting stock:', error);
       setError(error.message || 'Error al ajustar stock');
       setTimeout(() => {
         setError('');
@@ -214,7 +277,11 @@ export function InventoryTable() {
                           ) : (
                             <div className="flex items-center">
                               <div className="flex-shrink-0 h-10 w-10">
-                                <img className="h-10 w-10 rounded-full object-cover" src={product.image} alt="" />
+                                <img 
+                                  className="h-10 w-10 rounded-full object-cover" 
+                                  src={product.image || 'https://via.placeholder.com/150?text=No+Image'} 
+                                  alt="" 
+                                />
                               </div>
                               <div className="ml-4">
                                 <div className="text-sm font-medium text-gray-900">{product.title}</div>
@@ -264,6 +331,8 @@ export function InventoryTable() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {totalSales}
                       </td>
+
+                      {/* Columna Precio */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {isEditing ? (
                           <input
@@ -277,9 +346,13 @@ export function InventoryTable() {
                           `$${product.price.toFixed(2)}`
                         )}
                       </td>
+
+                      {/* Columna Ingresos */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         ${totalRevenue.toFixed(2)}
                       </td>
+
+                      {/* Columna Acciones */}
                       {isAdmin && (
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           {isEditing ? (
@@ -326,19 +399,25 @@ export function InventoryTable() {
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td colSpan={2} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     Totales
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    -
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                     {products.reduce((sum, p) => sum + p.stock, 0)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    -
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                     {products.reduce((sum, p) => sum + (p.sales || 0), 0)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     -
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                     ${products.reduce((sum, p) => sum + (p.sales || 0) * p.price, 0).toFixed(2)}
                   </td>
                   {isAdmin && <td></td>}
