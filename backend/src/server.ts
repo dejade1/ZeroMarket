@@ -38,7 +38,8 @@ import {
   consumeBatchesFIFO,
   getExpiringBatches,
   getProductBatches,
-  getBatchStockSummary
+  getBatchStockSummary,
+  deleteBatch
 } from './services/batch.service';
 
 // ==================== CONFIGURACIÓN ====================

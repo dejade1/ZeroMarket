@@ -28,7 +28,7 @@ import {
   FileBarChart,
   Layers
 } from 'lucide-react';
-import { BatchManagement } from '../components/admin/BatchManagement';
+import { BatchManagement } from './BatchManagement';
 
 // ✅ COMPONENTES COMPLETAMENTE REFACTORIZADOS
 import { UserManagement } from './UserManagement';
@@ -98,7 +98,7 @@ export function Dashboard() {
       id: 'batches',
       label: 'Gestión de Lotes',
       icon: Layers,
-      component: <BatchManager />,
+      component: <BatchManagement />,
       allowedRoles: ['ADMIN'] // Solo ADMIN
     },
     {
@@ -121,12 +121,7 @@ export function Dashboard() {
       icon: SettingsIcon,
       component: <Settings />,
       allowedRoles: ['ADMIN'] // Solo ADMIN
-    },
-    {
-      id: 'batches',
-      name: 'Gestión de Lotes',
-      component: BatchManagement
-    } 
+    }
   ];
 
   // ✅ Filtrar pestañas según el rol del usuario
