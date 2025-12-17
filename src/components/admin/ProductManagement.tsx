@@ -16,8 +16,8 @@ interface Product {
   rating: number;
   category?: string | null;
   sales: number;
-  slot?: number | null;          // ✅ Campo de slot (Int)
-  slotDistance?: number | null;  // ✅ Campo de distancia del motor (Float)
+  slot?: number | null;
+  slotDistance?: number | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 }
@@ -45,18 +45,15 @@ export function ProductManagement() {
     image: '',
     rating: '5.0',
     category: '',
-    slot: '',          // ✅ Slot del hardware
-    slotDistance: '',  // ✅ Distancia del motor (acepta decimales)
-    expiryDate: ''     // ✅ Fecha de vencimiento del primer lote
+    slot: '',
+    slotDistance: '',
+    expiryDate: ''
   });
 
   useEffect(() => {
     loadProducts();
   }, []);
 
-  /**
-   * ✅ Carga productos desde el backend
-   */
   async function loadProducts() {
     try {
       const response = await fetch(`${API_URL}/api/admin/products`, {
@@ -101,9 +98,6 @@ export function ProductManagement() {
     }
   };
 
-  /**
-   * ✅ Crea producto en el backend
-   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -111,7 +105,6 @@ export function ProductManagement() {
     setLoading(true);
 
     try {
-      // Validaciones
       if (!newProduct.title || !newProduct.price || !newProduct.stock || !newProduct.unit) {
         setError('Todos los campos marcados con * son obligatorios');
         setLoading(false);
@@ -122,7 +115,7 @@ export function ProductManagement() {
       const stock = parseInt(newProduct.stock);
       const rating = parseFloat(newProduct.rating);
       const slot = newProduct.slot ? parseInt(newProduct.slot) : null;
-      const slotDistance = newProduct.slotDistance ? parseFloat(newProduct.slotDistance) : null;  // ✅ Float
+      const slotDistance = newProduct.slotDistance ? parseFloat(newProduct.slotDistance) : null;
 
       if (price <= 0) {
         setError('El precio debe ser mayor que 0');
@@ -136,7 +129,6 @@ export function ProductManagement() {
         return;
       }
 
-      // ✅ Validar fecha de vencimiento si hay stock inicial
       if (stock > 0 && !newProduct.expiryDate) {
         setError('Debe ingresar la fecha de vencimiento para el stock inicial');
         setLoading(false);
@@ -149,7 +141,6 @@ export function ProductManagement() {
         return;
       }
 
-      // Preparar datos
       const productData = {
         title: newProduct.title.trim(),
         description: newProduct.description.trim() || null,
@@ -159,12 +150,11 @@ export function ProductManagement() {
         image: newProduct.image.trim() || null,
         rating,
         category: newProduct.category || null,
-        slot,           // ✅ Int
-        slotDistance,   // ✅ Float (permite decimales)
+        slot,
+        slotDistance,
         expiryDate: newProduct.expiryDate || null
       };
 
-      // ✅ Enviar al backend
       const response = await fetch(`${API_URL}/api/admin/products`, {
         method: 'POST',
         credentials: 'include',
@@ -182,7 +172,6 @@ export function ProductManagement() {
 
       setSuccess(result.message || `Producto "${productData.title}" agregado correctamente`);
 
-      // Limpiar formulario
       setNewProduct({
         title: '',
         description: '',
@@ -199,7 +188,6 @@ export function ProductManagement() {
       setImageFile(null);
       setImagePreview('');
 
-      // Recargar productos
       await loadProducts();
     } catch (error) {
       console.error('Error creating product:', error);
@@ -222,7 +210,6 @@ export function ProductManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Formulario de Nuevo Producto */}
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div className="md:grid md:grid-cols-3 md:gap-6">
           <div className="md:col-span-1">
@@ -245,7 +232,6 @@ export function ProductManagement() {
               )}
 
               <div className="grid grid-cols-6 gap-6">
-                {/* Título */}
                 <div className="col-span-6">
                   <label htmlFor="title" className="block text-sm font-medium text-gray-700">
                     Nombre del Producto *
@@ -259,7 +245,6 @@ export function ProductManagement() {
                   />
                 </div>
 
-                {/* Descripción */}
                 <div className="col-span-6">
                   <label htmlFor="description" className="block text-sm font-medium text-gray-700">
                     Descripción
@@ -274,7 +259,6 @@ export function ProductManagement() {
                   />
                 </div>
 
-                {/* Precio */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="price" className="block text-sm font-medium text-gray-700">
                     Precio *
@@ -295,7 +279,6 @@ export function ProductManagement() {
                   </div>
                 </div>
 
-                {/* Stock */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="stock" className="block text-sm font-medium text-gray-700">
                     Stock Actual (unidades físicas) *
@@ -309,7 +292,6 @@ export function ProductManagement() {
                   />
                 </div>
 
-                {/* ✅ Fecha de Vencimiento (solo si stock > 0) */}
                 {parseInt(newProduct.stock) > 0 && (
                   <div className="col-span-6">
                     <div className="bg-green-50 border border-green-200 rounded-md p-4">
@@ -332,7 +314,6 @@ export function ProductManagement() {
                   </div>
                 )}
 
-                {/* Unidad */}
                 <div className="col-span-6 sm:col-span-2">
                   <label htmlFor="unit" className="block text-sm font-medium text-gray-700">
                     Unidad de Medida *
@@ -356,7 +337,6 @@ export function ProductManagement() {
                   </select>
                 </div>
 
-                {/* Categoría */}
                 <div className="col-span-6 sm:col-span-2">
                   <label htmlFor="category" className="block text-sm font-medium text-gray-700">
                     Categoría
@@ -384,7 +364,6 @@ export function ProductManagement() {
                   </select>
                 </div>
 
-                {/* ✅ Slot */}
                 <div className="col-span-6 sm:col-span-2">
                   <label htmlFor="slot" className="block text-sm font-medium text-gray-700">
                     Slot (Hardware)
@@ -400,14 +379,13 @@ export function ProductManagement() {
                   <p className="mt-1 text-xs text-gray-500">Número de slot ESP32/Arduino</p>
                 </div>
 
-                {/* ✅ Distancia del Slot (acepta decimales) */}
                 <div className="col-span-6 sm:col-span-3">
                   <label htmlFor="slotDistance" className="block text-sm font-medium text-gray-700">
                     Distancia del Motor (cm)
                   </label>
                   <input
                     type="number"
-                    step="0.1"  {/* ✅ Permite decimales como 9.2 */}
+                    step="0.1"
                     id="slotDistance"
                     value={newProduct.slotDistance}
                     onChange={(e) => setNewProduct({ ...newProduct, slotDistance: e.target.value })}
@@ -417,7 +395,6 @@ export function ProductManagement() {
                   <p className="mt-1 text-xs text-gray-500">Centímetros que debe moverse el motor (acepta decimales)</p>
                 </div>
 
-                {/* Imagen */}
                 <div className="col-span-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Imagen del Producto
@@ -491,7 +468,6 @@ export function ProductManagement() {
         </div>
       </div>
 
-      {/* Lista de Productos */}
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg leading-6 font-medium text-gray-900">Productos Existentes</h3>
@@ -576,7 +552,6 @@ export function ProductManagement() {
                                 {product.category || 'General'}
                               </span>
                             </td>
-                            {/* ✅ Mostrar Slot */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {product.slot ? (
                                 <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
@@ -586,10 +561,9 @@ export function ProductManagement() {
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            {/* ✅ Mostrar Distancia con decimales */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {product.slotDistance ? (
-                                <span>{product.slotDistance.toFixed(1)} cm</span>  {/* ✅ Muestra con 1 decimal */}
+                                <span>{product.slotDistance.toFixed(1)} cm</span>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
@@ -623,7 +597,6 @@ export function ProductManagement() {
         </div>
       </div>
 
-      {/* Modal de Edición */}
       {editingProduct && (
         <ProductEditModal
           product={editingProduct}
