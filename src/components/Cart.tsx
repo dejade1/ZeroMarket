@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
-import { X, Plus, Minus, ShoppingCart, CreditCard } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, Minus, ShoppingCart, CreditCard, User } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import type { CustomerData } from '../context/CartContext';
 
 export function Cart() {
   const { state, dispatch, checkout } = useCart();
+  const { user } = useAuth();
   const [showCheckout, setShowCheckout] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isFinalConsumer, setIsFinalConsumer] = useState(false);
   const [customerData, setCustomerData] = useState<CustomerData>({
     customerName: '',
     customerEmail: '',
@@ -19,6 +22,39 @@ export function Cart() {
     (sum, item) => sum + item.price * item.quantity,
     0
   );
+
+  // ✅ Auto-llenar datos si el usuario está logueado
+  useEffect(() => {
+    if (showCheckout && user) {
+      setCustomerData(prev => ({
+        ...prev,
+        customerName: user.username || prev.customerName,
+        customerEmail: user.email || prev.customerEmail
+      }));
+    }
+  }, [showCheckout, user]);
+
+  // ✅ Si se activa "Consumidor Final", llenar con datos genéricos
+  useEffect(() => {
+    if (isFinalConsumer) {
+      setCustomerData({
+        customerName: 'Consumidor Final',
+        customerEmail: 'consumidorfinal@tienda.com',
+        phone: '9999999999',
+        address: 'Sin dirección especificada',
+        paymentMethod: 'Efectivo'
+      });
+    } else if (!user) {
+      // Si se desactiva y no hay usuario, limpiar datos
+      setCustomerData({
+        customerName: '',
+        customerEmail: '',
+        phone: '',
+        address: '',
+        paymentMethod: 'Efectivo'
+      });
+    }
+  }, [isFinalConsumer, user]);
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +71,7 @@ export function Cart() {
         paymentMethod: 'Efectivo'
       });
       setShowCheckout(false);
+      setIsFinalConsumer(false);
     } catch (error) {
       console.error('Error en checkout:', error);
     } finally {
@@ -44,6 +81,9 @@ export function Cart() {
 
   if (!state.isOpen) return null;
 
+  // ✅ Permitir "Consumidor Final" solo si la compra es menor a $50
+  const canBeFinalConsumer = total < 50;
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       <div 
@@ -51,6 +91,7 @@ export function Cart() {
         onClick={() => {
           dispatch({ type: 'TOGGLE_CART' });
           setShowCheckout(false);
+          setIsFinalConsumer(false);
         }}
       />
       <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-xl overflow-y-auto">
@@ -74,6 +115,7 @@ export function Cart() {
               onClick={() => {
                 dispatch({ type: 'TOGGLE_CART' });
                 setShowCheckout(false);
+                setIsFinalConsumer(false);
               }}
               className="rounded-full p-1 hover:bg-gray-100"
             >
@@ -162,6 +204,40 @@ export function Cart() {
             <>
               <div className="flex-1 overflow-y-auto p-4">
                 <form onSubmit={handleCheckout} className="space-y-4">
+                  {/* ✅ Opción Consumidor Final (solo para compras < $50) */}
+                  {canBeFinalConsumer && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isFinalConsumer}
+                          onChange={(e) => setIsFinalConsumer(e.target.checked)}
+                          className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          disabled={isProcessing}
+                        />
+                        <div className="flex items-center">
+                          <User className="h-5 w-5 mr-2 text-blue-600" />
+                          <div>
+                            <span className="font-medium text-blue-900">Consumidor Final</span>
+                            <p className="text-xs text-blue-700 mt-0.5">
+                              No requiere factura (disponible solo para compras menores a $50)
+                            </p>
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* ✅ Mensaje si el usuario está logueado */}
+                  {user && !isFinalConsumer && (
+                    <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm">
+                      <div className="flex items-center text-green-800">
+                        <User className="h-5 w-5 mr-2" />
+                        <span className="font-medium">Datos cargados desde tu cuenta</span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Nombre */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -172,9 +248,9 @@ export function Cart() {
                       required
                       value={customerData.customerName}
                       onChange={(e) => setCustomerData({ ...customerData, customerName: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-600"
                       placeholder="Juan Pérez"
-                      disabled={isProcessing}
+                      disabled={isProcessing || isFinalConsumer}
                     />
                   </div>
 
@@ -188,9 +264,9 @@ export function Cart() {
                       required
                       value={customerData.customerEmail}
                       onChange={(e) => setCustomerData({ ...customerData, customerEmail: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-600"
                       placeholder="juan@example.com"
-                      disabled={isProcessing}
+                      disabled={isProcessing || isFinalConsumer}
                     />
                   </div>
 
@@ -204,9 +280,9 @@ export function Cart() {
                       required
                       value={customerData.phone}
                       onChange={(e) => setCustomerData({ ...customerData, phone: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-600"
                       placeholder="555-1234"
-                      disabled={isProcessing}
+                      disabled={isProcessing || isFinalConsumer}
                     />
                   </div>
 
@@ -219,10 +295,10 @@ export function Cart() {
                       required
                       value={customerData.address}
                       onChange={(e) => setCustomerData({ ...customerData, address: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-600"
                       placeholder="Calle Falsa 123, Ciudad, País"
                       rows={3}
-                      disabled={isProcessing}
+                      disabled={isProcessing || isFinalConsumer}
                     />
                   </div>
 
@@ -266,7 +342,10 @@ export function Cart() {
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      onClick={() => setShowCheckout(false)}
+                      onClick={() => {
+                        setShowCheckout(false);
+                        setIsFinalConsumer(false);
+                      }}
                       className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium py-3 px-4 rounded-md transition-colors"
                       disabled={isProcessing}
                     >
