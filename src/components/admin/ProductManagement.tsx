@@ -208,6 +208,24 @@ export function ProductManagement() {
     setEditingProduct(null);
   };
 
+  /**
+   * Formatea slotDistance para mostrar decimales correctamente
+   * - Si tiene decimales, los muestra (9.21, 8.30)
+   * - Si es entero, muestra .0 (9 -> 9.0)
+   */
+  const formatSlotDistance = (value: number): string => {
+    // Convertir a string para preservar decimales
+    const str = value.toString();
+    
+    // Si ya tiene punto decimal, retornar tal cual
+    if (str.includes('.')) {
+      return str;
+    }
+    
+    // Si es entero, agregar .0
+    return `${str}.0`;
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
@@ -385,12 +403,12 @@ export function ProductManagement() {
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.01"
                     id="slotDistance"
                     value={newProduct.slotDistance}
                     onChange={(e) => setNewProduct({ ...newProduct, slotDistance: e.target.value })}
                     className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 sm:text-sm"
-                    placeholder="9.2, 10.5, 15.8..."
+                    placeholder="9.21, 10.53, 15.08..."
                   />
                   <p className="mt-1 text-xs text-gray-500">Centímetros que debe moverse el motor (acepta decimales)</p>
                 </div>
@@ -562,8 +580,8 @@ export function ProductManagement() {
                               )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {product.slotDistance ? (
-                                <span>{product.slotDistance} cm</span>
+                              {product.slotDistance !== null && product.slotDistance !== undefined ? (
+                                <span>{formatSlotDistance(product.slotDistance)} cm</span>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
