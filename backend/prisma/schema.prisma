@@ -92,7 +92,7 @@ model Product {
   
   // ✅ SISTEMA DE SLOTS (Hardware ESP32/Arduino)
   slot         Int?     // Número de slot asignado (1, 2, 3, ...)
-  slotDistance Int?     // Distancia en centímetros que debe moverse el motor
+  slotDistance Float?   // ✅ CORREGIDO: Float para soportar decimales (9.21, 8.30, etc.)
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
