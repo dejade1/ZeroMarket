@@ -563,7 +563,7 @@ export function ProductManagement() {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {product.slotDistance ? (
-                                <span>{product.slotDistance.toFixed(1)} cm</span>
+                                <span>{product.slotDistance} cm</span>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
