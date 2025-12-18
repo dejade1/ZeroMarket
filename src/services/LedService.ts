@@ -1,12 +1,11 @@
 class LedService {
-  private baseUrl: string = 'http://192.168.18.14'; // ACTUALIZA CON TU IP
+  private baseUrl: string = 'http://192.168.0.106'; // ✅ IP actualizada
   private isConnected: boolean = false;
 
   async connect(): Promise<boolean> {
     try {
       console.log('[LedService] Verificando conexión ESP32...');
 
-      // ✅ TIMEOUT AUMENTADO: 5 segundos para la comprobación de estado
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -38,30 +37,39 @@ class LedService {
     }
   }
 
-  async sendProductSignal(productId: number, quantity: number): Promise<boolean> {
+  /**
+   * ✅ NUEVO: Enviar múltiples productos al ESP32 (formato correcto)
+   * Formato esperado por ESP32:
+   * {
+   *   "items": [
+   *     {"slot": 1, "quantity": 2, "slotDistance": 9.21},
+   *     {"slot": 2, "quantity": 1, "slotDistance": 8.30}
+   *   ]
+   * }
+   */
+  async dispenseProducts(items: Array<{slot: number, quantity: number, slotDistance: number}>): Promise<boolean> {
     try {
-      console.log(`[LedService] 📦 Dispensando producto ${productId}, cantidad ${quantity}`);
+      console.log(`[LedService] 📦 Dispensando ${items.length} productos:`, items);
 
-      // ✅ TIMEOUT AUMENTADO: 10 segundos para la dispensación
-      // (el motor puede tardar varios segundos en girar)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos para dispensación múltiple
 
-      const response = await fetch(`${this.baseUrl}/blink`, {
+      const response = await fetch(`${this.baseUrl}/dispense`, {
         method: 'POST',
         mode: 'cors',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ productId, quantity }),
+        body: JSON.stringify({ items }),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || `HTTP ${response.status}`);
+        const errorText = await response.text();
+        console.error('[LedService] Error del ESP32:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const result = await response.json();
@@ -69,7 +77,7 @@ class LedService {
       return true;
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.error('[LedService] ❌ Timeout: ESP32 no completó dispensación en 10 segundos');
+        console.error('[LedService] ❌ Timeout: ESP32 no completó dispensación en 15 segundos');
       } else {
         console.error('[LedService] ❌ Error:', error.message);
       }
@@ -77,8 +85,16 @@ class LedService {
     }
   }
 
+  /**
+   * @deprecated Usar dispenseProducts() en su lugar
+   */
+  async sendProductSignal(productId: number, quantity: number): Promise<boolean> {
+    console.warn('[LedService] ⚠ sendProductSignal() está deprecado, usa dispenseProducts()');
+    return false;
+  }
+
   isSupported(): boolean {
-    return true; // WiFi siempre disponible
+    return true;
   }
 
   getConnectionStatus(): boolean {
