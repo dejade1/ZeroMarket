@@ -1,5 +1,5 @@
 class LedService {
-  private baseUrl: string = 'http://192.168.18.14'; // ACTUALIZA CON TU IP
+  private baseUrl: string = 'http://192.168.0.106'; // ACTUALIZA CON TU IP
   private isConnected: boolean = false;
 
   async connect(): Promise<boolean> {
