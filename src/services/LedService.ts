@@ -12,7 +12,8 @@ class LedService {
     if (this.ipLoaded) return; // Solo cargar una vez
 
     try {
-      const response = await fetch(`${API_URL}/settings/esp32_ip`, {
+      // ✅ CORREGIDO: Usar /admin/settings
+      const response = await fetch(`${API_URL}/admin/settings/esp32_ip`, {
         credentials: 'include'
       });
 
