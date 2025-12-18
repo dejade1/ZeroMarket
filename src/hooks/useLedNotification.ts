@@ -1,6 +1,13 @@
 import { useState, useCallback } from 'react';
 import { ledService } from '../services/LedService';
 
+interface CartItem {
+  id: number;
+  quantity: number;
+  slot?: number;
+  slotDistance?: number;
+}
+
 export function useLedNotification() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +35,7 @@ export function useLedNotification() {
     }
   }, []);
 
-  const notifyPurchase = useCallback(async (items: Array<{ id: number; quantity: number }>) => {
+  const notifyPurchase = useCallback(async (items: CartItem[]) => {
     console.log('[useLedNotification] === INICIO notifyPurchase ===');
     console.log('[useLedNotification] Items recibidos:', items);
     
@@ -43,31 +50,34 @@ export function useLedNotification() {
     }
 
     try {
-      console.log('[useLedNotification] ✓ Conexión establecida, enviando productos...');
+      console.log('[useLedNotification] ✓ Conexión establecida, preparando dispensación...');
       
-      // Enviar cada producto secuencialmente
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        console.log(`[useLedNotification] Enviando producto ${i + 1}/${items.length}: ID=${item.id}, Cantidad=${item.quantity}`);
-        
-        const sent = await ledService.sendProductSignal(item.id, item.quantity);
-        
-        if (!sent) {
-          console.error(`[useLedNotification] ✗ Error enviando producto ${item.id}`);
-          setError(`Error enviando producto ${item.id}`);
-          return false;
-        }
-        
-        console.log(`[useLedNotification] ✓ Producto ${item.id} enviado correctamente`);
-        
-        // Esperar entre dispensaciones si hay más de un producto
-        if (i < items.length - 1) {
-          console.log('[useLedNotification] Esperando 1 segundo antes del siguiente producto...');
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+      // ✅ CONVERTIR items al formato que espera el ESP32
+      const esp32Items = items
+        .filter(item => item.slot && item.slotDistance) // Solo items con slot configurado
+        .map(item => ({
+          slot: item.slot!,
+          quantity: item.quantity,
+          slotDistance: item.slotDistance!
+        }));
+
+      if (esp32Items.length === 0) {
+        console.warn('[useLedNotification] ⚠ No hay productos con slot configurado');
+        return true; // No es error, simplemente no hay nada que dispensar
+      }
+
+      console.log('[useLedNotification] 📦 Enviando al ESP32:', esp32Items);
+      
+      // ✅ ENVIAR TODOS LOS PRODUCTOS DE UNA VEZ (dispensación simultánea)
+      const sent = await ledService.dispenseProducts(esp32Items);
+      
+      if (!sent) {
+        console.error('[useLedNotification] ✗ Error en dispensación');
+        setError('Error en dispensación de productos');
+        return false;
       }
       
-      console.log('[useLedNotification] ✓✓✓ Todos los productos enviados exitosamente');
+      console.log('[useLedNotification] ✓✓✓ Todos los productos dispensados exitosamente');
       return true;
     } catch (err) {
       console.error('[useLedNotification] ✗✗✗ Error en notifyPurchase:', err);
