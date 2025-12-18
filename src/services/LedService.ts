@@ -52,7 +52,8 @@ class LedService {
       console.log(`[LedService] 📦 Dispensando ${items.length} productos:`, items);
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos para dispensación múltiple
+      // ✅ AUMENTADO: 30 segundos para dispensación múltiple (era 15s)
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(`${this.baseUrl}/dispense`, {
         method: 'POST',
@@ -77,7 +78,8 @@ class LedService {
       return true;
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.error('[LedService] ❌ Timeout: ESP32 no completó dispensación en 15 segundos');
+        console.error('[LedService] ❌ Timeout: ESP32 no completó dispensación en 30 segundos');
+        console.error('[LedService] ⚠ ADVERTENCIA: Stock ya fue descontado pero productos NO dispensados');
       } else {
         console.error('[LedService] ❌ Error:', error.message);
       }
