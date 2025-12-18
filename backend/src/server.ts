@@ -35,7 +35,6 @@ import settingsRoutes from './routes/settingsRoutes';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
 import {
   createBatch,
-  consumeBatchesFIFO,
   getExpiringBatches,
   getProductBatches,
   getBatchStockSummary,
@@ -593,6 +592,64 @@ app.post('/api/users/:userId/points', authenticateToken, async (req: AuthRequest
         res.status(500).json({ error: 'Error al actualizar puntos' });
     }
 });
+
+// ==================== FUNCIÓN OPTIMIZADA DE CONSUMO FIFO ====================
+
+/**
+ * ✅ OPTIMIZADA: Consume lotes FIFO en una sola transacción
+ */
+async function consumeBatchesFIFO_Optimized(
+  tx: any,
+  productId: number,
+  quantity: number
+): Promise<void> {
+  if (quantity <= 0) return;
+
+  let remaining = quantity;
+
+  // Obtener lotes ordenados por FIFO (1 sola query)
+  const batches = await tx.batch.findMany({
+    where: {
+      productId,
+      quantity: { gt: 0 }
+    },
+    orderBy: [
+      { expiryDate: 'asc' },
+      { createdAt: 'asc' }
+    ]
+  });
+
+  if (batches.length === 0) {
+    console.warn(`[FIFO] ⚠ Producto ${productId} sin lotes configurados`);
+    return; // No fallar si no hay lotes
+  }
+
+  // Preparar actualizaciones en batch
+  const updates = [];
+  
+  for (const batch of batches) {
+    if (remaining <= 0) break;
+
+    const toConsume = Math.min(batch.quantity, remaining);
+    
+    updates.push(
+      tx.batch.update({
+        where: { id: batch.id },
+        data: { quantity: batch.quantity - toConsume }
+      })
+    );
+
+    remaining -= toConsume;
+  }
+
+  // Ejecutar todas las actualizaciones en paralelo
+  await Promise.all(updates);
+
+  if (remaining > 0) {
+    console.warn(`[FIFO] ⚠ Stock insuficiente en lotes para producto ${productId}`);
+  }
+}
+
 // ==================== RUTAS DE ÓRDENES ====================
 
 app.post('/api/orders', async (req: Request, res: Response) => {
@@ -603,51 +660,49 @@ app.post('/api/orders', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Faltan datos obligatorios' });
         }
 
-        // ✅ Aumentar timeout de transacción a 15 segundos
+        // ✅ Aumentar timeout a 30 segundos
         const order = await prisma.$transaction(async (tx) => {
+            // 1. Crear orden
             const newOrder = await tx.order.create({
                 data: { customerName, customerEmail, phone, address, paymentMethod, total, status: 'PENDING' }
             });
 
-           for (const item of items) {
-             const product = await tx.product.findUnique({ where: { id: item.productId } });
-    
-            if (!product || product.stock < item.quantity) {
-            throw new Error(`Stock insuficiente para producto ID ${item.productId}`);
-            }
+            // 2. Procesar items en paralelo donde sea posible
+            for (const item of items) {
+                const product = await tx.product.findUnique({ where: { id: item.productId } });
+        
+                if (!product || product.stock < item.quantity) {
+                    throw new Error(`Stock insuficiente para producto ID ${item.productId}`);
+                }
 
-             await tx.orderItem.create({
-              data: { orderId: newOrder.id, productId: item.productId, quantity: item.quantity, price: item.price }
+                // Crear item de orden
+                await tx.orderItem.create({
+                    data: { orderId: newOrder.id, productId: item.productId, quantity: item.quantity, price: item.price }
                 });
 
-         await tx.product.update({
-           where: { id: item.productId },
-             data: {
-            stock: { decrement: item.quantity },
-            sales: { increment: item.quantity },
-            dailySales: { increment: item.quantity }
-        }
-    });
+                // Actualizar stock
+                await tx.product.update({
+                    where: { id: item.productId },
+                    data: {
+                        stock: { decrement: item.quantity },
+                        sales: { increment: item.quantity },
+                        dailySales: { increment: item.quantity }
+                    }
+                });
 
-    // ✅ CONSUMIR LOTES FIFO
-    try {
-        await consumeBatchesFIFO(item.productId, item.quantity);
-        console.log(`[FIFO] ✓ Lotes consumidos para producto ${item.productId}`);
-    } catch (fifoError) {
-        console.warn(`[FIFO] ⚠ Producto ${item.productId} sin lotes configurados: ${fifoError}`);
-        // No fallar la orden si el producto no tiene lotes
-    }
-}
+                // ✅ CONSUMIR LOTES FIFO (optimizado)
+                await consumeBatchesFIFO_Optimized(tx, item.productId, item.quantity);
+            }
 
-
+            // 3. Marcar orden como completada
             return await tx.order.update({
                 where: { id: newOrder.id },
                 data: { status: 'COMPLETED' },
                 include: { items: { include: { product: true } } }
             });
         }, {
-            maxWait: 10000,  // ✅ Esperar hasta 10 segundos antes de iniciar transacción
-            timeout: 15000   // ✅ Timeout total de 15 segundos (antes era 5 segundos por defecto)
+            maxWait: 15000,  // ✅ Esperar hasta 15 segundos antes de iniciar
+            timeout: 30000   // ✅ Timeout total de 30 segundos
         });
 
         console.log(`[ÓRDEN] #${order.id} - ${customerName} - $${total}`);
@@ -953,5 +1008,5 @@ process.on('SIGINT', async () => {
 
 console.log(`📦 Products API enabled`);
 console.log(`🛒 Orders API enabled`);
-console.log(`📦 Batches API enabled (FIFO system)`);
+console.log(`📦 Batches API enabled (FIFO system - OPTIMIZED)`);
 console.log(`📋 Stock Adjustments API enabled`);
