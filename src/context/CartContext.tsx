@@ -17,6 +17,8 @@ interface Product {
   rating: number;
   category?: string | null;
   sales: number;
+  slot?: number | null;         // ✅ Agregado
+  slotDistance?: number | null; // ✅ Agregado
   createdAt: Date | string;
   updatedAt: Date | string;
 }
@@ -228,12 +230,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Notificar al sistema LED
+      // ✅ CORREGIDO: Notificar al sistema LED con slot y slotDistance
       console.log('Notificando sistema LED...');
       const ledSuccess = await notifyPurchase(
         state.items.map(item => ({
           id: item.id,
-          quantity: item.quantity
+          quantity: item.quantity,
+          slot: item.slot ?? undefined,           // ✅ Agregado
+          slotDistance: item.slotDistance ?? undefined // ✅ Agregado
         }))
       );
 
