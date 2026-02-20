@@ -25,6 +25,87 @@ export function Cart() {
     paymentMethod: 'Efectivo'
   });
 
+  // Agregar al componente Cart existente (en la sección de checkout)
+
+const [paymentState, setPaymentState] = useState<{
+  status: 'idle' | 'waiting' | 'complete' | 'error';
+  inserted: number;
+  remaining: number;
+  change: number;
+  orderId?: string;
+}>({ status: 'idle', inserted: 0, remaining: 0, change: 0 });
+
+const wsRef = useRef<WebSocket | null>(null);
+
+useEffect(() => {
+  wsRef.current = new WebSocket('ws://localhost:8081');
+
+  wsRef.current.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+
+    switch (data.event) {
+      case 'PAYMENT_SESSION_STARTED':
+        setPaymentState(prev => ({
+          ...prev,
+          status: 'waiting',
+          orderId: data.orderId,
+          remaining: data.totalCents,
+          inserted: 0,
+        }));
+        break;
+
+      case 'NOTE_CREDIT':
+      case 'COIN_CREDIT':
+        setPaymentState(prev => ({
+          ...prev,
+          inserted: data.valueInserted,
+          remaining: data.remaining,
+        }));
+        break;
+
+      case 'PAYMENT_COMPLETE':
+        setPaymentState(prev => ({
+          ...prev,
+          status: 'complete',
+          change: data.change,
+        }));
+        // Actualizar orden en DB como pagada
+        fetch(`/api/orders/${data.orderId}/confirm`, { method: 'POST' });
+        break;
+
+      case 'PAYMENT_CANCELLED':
+        setPaymentState(prev => ({ ...prev, status: 'idle' }));
+        break;
+
+      case 'JAM':
+      case 'ERROR':
+        setPaymentState(prev => ({ ...prev, status: 'error' }));
+        break;
+    }
+  };
+
+  return () => wsRef.current?.close();
+}, []);
+
+// Al presionar "Confirmar Pedido":
+const handleConfirmOrder = async () => {
+  const order = await createOrder(); // tu lógica existente
+  await fetch('/api/payment/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      orderId: order.id,
+      totalCents: Math.round(order.total * 100),
+    }),
+  });
+};
+
+// UI a renderizar según paymentState.status:
+// 'waiting'  → mostrar progreso: insertado vs total + "Inserte dinero"
+// 'complete' → mostrar "¡Pago exitoso! Cambio: $X.XX" + confirmación
+// 'error'    → mostrar alerta de error
+
+
   const total = state.items.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0

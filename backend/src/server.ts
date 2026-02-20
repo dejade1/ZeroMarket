@@ -32,6 +32,8 @@ import { PrismaClient } from '@prisma/client';
 import emailRoutes from './routes/emailRoutes';
 import productRoutes from './routes/productRoutes';
 import settingsRoutes from './routes/settingsRoutes';
+import { WebSocketServer } from 'ws';
+import { initSSP } from './services/sspService';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
 import {
   createBatch,
@@ -46,6 +48,11 @@ import {
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
+const wss = new WebSocketServer({ port: 8081 });
+console.log('[WS] WebSocket server escuchando en puerto 8081');
+
+const SSP_PORT = process.env.SSP_PORT || '/dev/ttyUSB0';
+initSSP(wss, SSP_PORT);
 
 // ✅ CORREGIDO: Secretos JWT son OBLIGATORIOS (Seguridad crítica)
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
