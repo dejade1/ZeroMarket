@@ -1,10 +1,11 @@
-const SSP = require('@kybarg/ssp');
 import { WebSocketServer } from 'ws';
+
+const SSP = require('@kybarg/ssp');
 
 const SCS_ADDRESS = 0x10;
 
 let nv200: any = null;
-let scs: any   = null;
+let scs:   any = null;
 let wss: WebSocketServer | null = null;
 let currentOrderId: string | null = null;
 let currentOrderTotal: number = 0;
@@ -26,18 +27,18 @@ export function initSSP(wsServer: WebSocketServer, portName?: string) {
   console.log(`[SSP] Servicio SSP listo. Puerto configurado: "${sspPort || 'no definido'}"`);
 }
 
-function connectDevices() {
+async function connectDevices() {
   if (devicesInitialized) return;
+  devicesInitialized = true;
 
   if (!sspPort) {
     console.warn('[SSP] SSP_PORT no definido — modo sin hardware');
-    devicesInitialized = true;
     return;
   }
 
   try {
     // --- NV200 Spectral (Billetes) ---
-    nv200 = new SSP({ port: sspPort, type: 'NV200' });
+    nv200 = new SSP({ id: 0 });
 
     nv200.on('OPEN', async () => {
       console.log('[NV200] Puerto abierto');
@@ -47,23 +48,20 @@ function connectDevices() {
         await nv200.command('SETUP_REQUEST');
         await nv200.command('SET_INHIBITS', { channels: [true, true, true, true, false, false, false, false] });
         await nv200.command('ENABLE');
-        console.log('[NV200] Listo');
+        console.log('[NV200] ✅ Listo');
         broadcast({ device: 'NV200', event: 'READY' });
       } catch (e: any) {
-        console.error('[NV200] Error inicializando:', e.message);
+        console.error('[NV200] Error inicializando:', e.message ?? e);
       }
     });
 
-    nv200.on('READ', ({ channel }: { channel: number }) => {
-      broadcast({ device: 'NV200', event: 'READ', channel });
-    });
-
-    nv200.on('NOTE_CREDIT', ({ channel }: { channel: number }) => {
+    nv200.on('NOTE_CREDIT', (info: any) => {
       const billValues: Record<number, number> = { 1: 100, 2: 500, 3: 1000, 4: 2000 };
-      const value = billValues[channel] ?? 0;
+      const value = billValues[info.channel] ?? 0;
       amountInserted += value;
       broadcast({
-        device: 'NV200', event: 'NOTE_CREDIT', channel,
+        device: 'NV200', event: 'NOTE_CREDIT',
+        channel: info.channel,
         valueInserted: amountInserted,
         remaining: Math.max(0, currentOrderTotal - amountInserted),
       });
@@ -74,16 +72,16 @@ function connectDevices() {
     nv200.on('REJECTED',     () => broadcast({ device: 'NV200', event: 'REJECTED' }));
     nv200.on('UNSAFE_JAM',   () => broadcast({ device: 'NV200', event: 'JAM' }));
     nv200.on('STACKER_FULL', () => broadcast({ device: 'NV200', event: 'STACKER_FULL' }));
-    nv200.on('DISABLED',     () => nv200.command('ENABLE').catch(() => {}));
-    nv200.on('error', (err: Error) => {
-      console.error('[NV200] Error:', err.message);
-      broadcast({ device: 'NV200', event: 'ERROR', message: err.message });
+    nv200.on('ERROR', (err: any) => {
+      console.error('[NV200] Error:', err?.message ?? err);
+      broadcast({ device: 'NV200', event: 'ERROR', message: err?.message ?? String(err) });
     });
 
-    nv200.open();
+    await nv200.open(sspPort);
+    console.log('[NV200] open() llamado en', sspPort);
 
     // --- SMART Coin System (Monedas) ---
-    scs   = new SSP({ port: sspPort, type: 'SMART_HOPPER', id: SCS_ADDRESS });
+    scs = new SSP({ id: SCS_ADDRESS });
 
     scs.on('OPEN', async () => {
       console.log('[SCS] Puerto abierto');
@@ -92,86 +90,81 @@ function connectDevices() {
         await scs.command('HOST_PROTOCOL_VERSION', { version: 8 });
         await scs.command('SETUP_REQUEST');
         await scs.command('ENABLE');
-        await scs.command('ENABLE_COIN_MECH', { enable: true });
-        console.log('[SCS] Listo');
+        console.log('[SCS] ✅ Listo');
         broadcast({ device: 'SCS', event: 'READY' });
       } catch (e: any) {
-        console.error('[SCS] Error inicializando:', e.message);
+        console.error('[SCS] Error inicializando:', e.message ?? e);
       }
     });
 
-    scs.on('COIN_CREDIT', ({ value, country }: { value: number; country: string }) => {
-      amountInserted += value;
+    scs.on('COIN_CREDIT', (info: any) => {
+      amountInserted += info.value ?? 0;
       broadcast({
-        device: 'SCS', event: 'COIN_CREDIT', value, country,
+        device: 'SCS', event: 'COIN_CREDIT',
+        value: info.value,
         valueInserted: amountInserted,
         remaining: Math.max(0, currentOrderTotal - amountInserted),
       });
       checkPaymentComplete();
     });
 
-    scs.on('DISPENSED', ({ value }: { value: number }) => {
-      broadcast({ device: 'SCS', event: 'DISPENSED', value });
-    });
-    scs.on('DISABLED', () => scs.command('ENABLE').catch(() => {}));
-    scs.on('error', (err: Error) => {
-      console.error('[SCS] Error:', err.message);
-      broadcast({ device: 'SCS', event: 'ERROR', message: err.message });
+    scs.on('ERROR', (err: any) => {
+      console.error('[SCS] Error:', err?.message ?? err);
+      broadcast({ device: 'SCS', event: 'ERROR', message: err?.message ?? String(err) });
     });
 
-    scs.open();
-    devicesInitialized = true;
-    console.log('[SSP] Dispositivos inicializados en', sspPort);
+    await scs.open(sspPort);
+    console.log('[SCS] open() llamado en', sspPort);
 
   } catch (err: any) {
-    console.error('[SSP] No se pudo abrir puerto serial:', err.message);
-    // No hacer crash — el servidor sigue corriendo sin hardware
+    console.error('[SSP] Error abriendo dispositivos:', err?.message ?? err);
     nv200 = null;
     scs   = null;
-    devicesInitialized = true; // evitar reintentos infinitos
+    devicesInitialized = false; // permitir reintento en el próximo pago
   }
 }
 
 export async function startPaymentSession(orderId: string, totalCents: number) {
+  currentOrderId    = orderId;
+  currentOrderTotal = totalCents;
+  amountInserted    = 0;
+
+  await connectDevices();
+
   try {
-    connectDevices();
-    currentOrderId    = orderId;
-    currentOrderTotal = totalCents;
-    amountInserted    = 0;
-
-    if (nv200) await nv200.command('ENABLE').catch(() => {});
-    if (scs)   await scs.command('ENABLE').catch(() => {});
-    if (scs)   await scs.command('ENABLE_COIN_MECH', { enable: true }).catch(() => {});
-
-    broadcast({ event: 'PAYMENT_SESSION_STARTED', orderId, totalCents });
-    console.log(`[SSP] Sesión iniciada: orden ${orderId}, total: ${totalCents} centavos`);
-  } catch (err: any) {
-    console.error('[SSP] Error en startPaymentSession:', err.message);
-    throw err;
+    if (nv200) await nv200.command('ENABLE');
+    if (scs)   await scs.command('ENABLE');
+  } catch (e: any) {
+    console.warn('[SSP] Advertencia al habilitar dispositivos:', e.message ?? e);
   }
+
+  broadcast({ event: 'PAYMENT_SESSION_STARTED', orderId, totalCents });
+  console.log(`[SSP] Sesión iniciada: orden ${orderId}, total: ${totalCents} centavos`);
 }
 
 async function checkPaymentComplete() {
   if (!currentOrderId) return;
-  if (amountInserted >= currentOrderTotal) {
-    const change = amountInserted - currentOrderTotal;
+  if (amountInserted < currentOrderTotal) return;
 
-    if (nv200) await nv200.command('DISABLE').catch(() => {});
-    if (scs)   await scs.command('DISABLE').catch(() => {});
+  const change = amountInserted - currentOrderTotal;
 
-    broadcast({
-      event: 'PAYMENT_COMPLETE',
-      orderId: currentOrderId,
-      totalPaid: amountInserted,
-      change,
-    });
+  try {
+    if (nv200) await nv200.command('DISABLE');
+    if (scs)   await scs.command('DISABLE');
+  } catch (_) {}
 
-    if (change > 0 && scs) await giveChange(change);
+  broadcast({
+    event: 'PAYMENT_COMPLETE',
+    orderId: currentOrderId,
+    totalPaid: amountInserted,
+    change,
+  });
 
-    currentOrderId    = null;
-    currentOrderTotal = 0;
-    amountInserted    = 0;
-  }
+  if (change > 0 && scs) await giveChange(change);
+
+  currentOrderId    = null;
+  currentOrderTotal = 0;
+  amountInserted    = 0;
 }
 
 async function giveChange(amountCents: number) {
@@ -183,15 +176,14 @@ async function giveChange(amountCents: number) {
     });
     broadcast({ device: 'SCS', event: 'DISPENSING_CHANGE', amount: amountCents });
   } catch (err: any) {
-    console.error('[SCS] Error dispensando cambio:', err.message);
+    console.error('[SCS] Error dispensando cambio:', err?.message ?? err);
   }
 }
 
 export async function cancelPaymentSession() {
   try {
-    if (nv200) await nv200.command('REJECT').catch(() => {});
-    if (nv200) await nv200.command('DISABLE').catch(() => {});
-    if (scs)   await scs.command('DISABLE').catch(() => {});
+    if (nv200) await nv200.command('DISABLE');
+    if (scs)   await scs.command('DISABLE');
     if (amountInserted > 0 && scs) await giveChange(amountInserted);
   } catch (_) {}
 
