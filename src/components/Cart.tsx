@@ -69,23 +69,24 @@ export function Cart() {
 
   const handlePaymentMethodSelect = (method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
-    
+
     // Actualizar método en customerData
     const paymentMethodName = {
       cash: 'Efectivo',
       card: 'Tarjeta',
       deuna: 'DeUna'
     }[method];
-    
+
     setCustomerData(prev => ({ ...prev, paymentMethod: paymentMethodName }));
     setStep('processing');
   };
 
-  const handlePaymentSuccess = async () => {
+  const handlePaymentSuccess = React.useCallback(async () => {
+    if (isProcessing) return;
     setIsProcessing(true);
     try {
       await checkout(customerData);
-      
+
       // Resetear todo
       setCustomerData({
         customerName: '',
@@ -104,7 +105,7 @@ export function Cart() {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [isProcessing, checkout, customerData, dispatch]);
 
   const handlePaymentCancel = () => {
     setSelectedPaymentMethod(null);
@@ -135,8 +136,8 @@ export function Cart() {
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
-      <div 
-        className="absolute inset-0 bg-black bg-opacity-50" 
+      <div
+        className="absolute inset-0 bg-black bg-opacity-50"
         onClick={handleClose}
       />
       <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-xl overflow-y-auto">

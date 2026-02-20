@@ -12,6 +12,8 @@ export function CashPayment({ total, onSuccess, onCancel }: CashPaymentProps) {
   const [message, setMessage] = useState('Esperando billetes...');
   const [receivedAmount, setReceivedAmount] = useState(0);
 
+  const successCalled = React.useRef(false);
+
   // Simulación de recepción de billetes
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -29,7 +31,12 @@ export function CashPayment({ total, onSuccess, onCancel }: CashPaymentProps) {
             setTimeout(() => {
               setStatus('success');
               setMessage('¡Pago completado!');
-              setTimeout(() => onSuccess(), 2000);
+              setTimeout(() => {
+                if (!successCalled.current) {
+                  successCalled.current = true;
+                  onSuccess();
+                }
+              }, 2000);
             }, 2000);
             
             return total;

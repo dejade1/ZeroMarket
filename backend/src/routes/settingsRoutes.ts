@@ -31,10 +31,10 @@ const DEFAULT_SETTINGS = {
   autoReportTime: '09:00',
   autoReportEnabled: false,
   esp32Enabled: false,
-  esp32IpAddress: '192.168.0.106',
+  esp32IpAddress: process.env.ESP32_IP || '192.168.0.106',
   esp32Port: 80,
   // ✅ Nuevas configuraciones individuales
-  esp32_ip: '192.168.0.106',
+  esp32_ip: process.env.ESP32_IP || '192.168.0.106',
   esp32_timeout: '30000',
   esp32_enabled: 'true'
 };
@@ -44,7 +44,7 @@ const DEFAULT_SETTINGS = {
  */
 async function loadSettings(): Promise<any> {
   await ensureDataDir();
-  
+
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8');
     return JSON.parse(data);
@@ -92,10 +92,10 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:key', async (req: Request, res: Response) => {
   const { key } = req.params;
   console.log(`🔍 GET /api/admin/settings/${key}`);
-  
+
   try {
     const settings = await loadSettings();
-    
+
     if (key in settings) {
       res.json({
         success: true,
@@ -133,7 +133,7 @@ router.get('/:key', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   console.log('💾 POST /api/admin/settings - Saving settings...');
   console.log('📦 Received settings:', JSON.stringify(req.body, null, 2));
-  
+
   try {
     const settings = req.body;
 
@@ -170,10 +170,10 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:key', async (req: Request, res: Response) => {
   const { key } = req.params;
   const { value, description } = req.body;
-  
+
   console.log(`💾 PUT /api/admin/settings/${key}`);
   console.log(`📦 Value: ${value}`);
-  
+
   try {
     if (!value) {
       return res.status(400).json({
@@ -184,15 +184,15 @@ router.put('/:key', async (req: Request, res: Response) => {
 
     // Cargar settings actuales
     const settings = await loadSettings();
-    
+
     // Actualizar el valor
     settings[key] = value;
-    
+
     // Guardar
     await saveSettings(settings);
-    
+
     console.log(`✅ Setting ${key} actualizado a: ${value}`);
-    
+
     res.json({
       success: true,
       setting: {

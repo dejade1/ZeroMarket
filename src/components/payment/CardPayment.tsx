@@ -11,6 +11,8 @@ export function CardPayment({ total, onSuccess, onCancel }: CardPaymentProps) {
   const [status, setStatus] = useState<'waiting' | 'processing' | 'success' | 'error'>('waiting');
   const [message, setMessage] = useState('Esperando tarjeta...');
 
+  const successCalled = React.useRef(false);
+
   const handleProcessPayment = () => {
     setStatus('processing');
     setMessage('Procesando pago en punto de venta...');
@@ -20,11 +22,16 @@ export function CardPayment({ total, onSuccess, onCancel }: CardPaymentProps) {
     setTimeout(() => {
       // Simular aprobación (90% de éxito)
       const approved = Math.random() > 0.1;
-      
+
       if (approved) {
         setStatus('success');
         setMessage('¡Pago aprobado!');
-        setTimeout(() => onSuccess(), 2000);
+        setTimeout(() => {
+          if (!successCalled.current) {
+            successCalled.current = true;
+            onSuccess();
+          }
+        }, 2000);
       } else {
         setStatus('error');
         setMessage('Pago rechazado. Intenta con otra tarjeta.');
