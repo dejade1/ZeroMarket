@@ -37,7 +37,7 @@ function connectDevices() {
 
   try {
     // --- NV200 Spectral (Billetes) ---
-    nv200 = new SSP({ device: sspPort, type: 'NV200' });
+    nv200 = new SSP({ port: sspPort, type: 'NV200' });
 
     nv200.on('OPEN', async () => {
       console.log('[NV200] Puerto abierto');
@@ -83,7 +83,7 @@ function connectDevices() {
     nv200.open();
 
     // --- SMART Coin System (Monedas) ---
-    scs = new SSP({ device: sspPort, type: 'SMART_HOPPER', id: SCS_ADDRESS });
+    scs   = new SSP({ port: sspPort, type: 'SMART_HOPPER', id: SCS_ADDRESS });
 
     scs.on('OPEN', async () => {
       console.log('[SCS] Puerto abierto');
