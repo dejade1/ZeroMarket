@@ -54,13 +54,14 @@ const PORT = process.env.PORT || 3000;
 // HTTP server creado DESPUÉS de app (requerido por TypeScript)
 const httpServer = http.createServer(app);
 
-
-const PORT = process.env.PORT || 3000;
 const wss = new WebSocketServer({ server: httpServer });
-console.log('[WS] WebSocket server adjunto al servidor HTTP en puerto 3000');
-
 const SSP_PORT = process.env.SSP_PORT || 'COM8';
+
 initSSP(wss, SSP_PORT);
+
+console.log('[WS] WebSocket server listo en puerto', PORT);
+
+
 
 // ✅ CORREGIDO: Secretos JWT son OBLIGATORIOS (Seguridad crítica)
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
