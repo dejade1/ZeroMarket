@@ -46,13 +46,18 @@ import {
 } from './services/batch.service';
 
 // ==================== CONFIGURACIÓN ====================
-const httpServer = http.createServer(app);
+
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
-const wss = new WebSocketServer({ server: httpServer });
-console.log('[WS] WebSocket server adjunto al servidor HTTP');
 
+// HTTP server creado DESPUÉS de app (requerido por TypeScript)
+const httpServer = http.createServer(app);
+
+
+const PORT = process.env.PORT || 3000;
+const wss = new WebSocketServer({ server: httpServer });
+console.log('[WS] WebSocket server adjunto al servidor HTTP en puerto 3000');
 
 const SSP_PORT = process.env.SSP_PORT || 'COM8';
 initSSP(wss, SSP_PORT);
