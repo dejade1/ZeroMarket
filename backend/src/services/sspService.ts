@@ -1,5 +1,6 @@
 // backend/src/services/sspService.ts
-import SSP from '@kybarg/ssp';
+const SSP = require('@kybarg/ssp');
+
 import { WebSocketServer } from 'ws';
 
 // Direcciones de dispositivos según spec ITL
