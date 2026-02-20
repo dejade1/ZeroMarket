@@ -54,12 +54,13 @@ const PORT = process.env.PORT || 3000;
 // HTTP server creado DESPUÉS de app (requerido por TypeScript)
 const httpServer = http.createServer(app);
 
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+
 const SSP_PORT = process.env.SSP_PORT || 'COM8';
 
 initSSP(wss, SSP_PORT);
 
-console.log('[WS] WebSocket server listo en puerto', PORT);
+console.log('[WS] WebSocket server adjunto al servidor HTTP en puerto 3000');
 
 
 
@@ -86,22 +87,29 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 días
 
 // ==================== MIDDLEWARES DE SEGURIDAD ====================
 
-// Helmet - Headers de seguridad
+// Helmet - Headers de seguridad (WS upgrade deshabilitado)
 app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", 'data:', 'https:'],
-        },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'ws://localhost:3000', 'ws://localhost:8081'],
     },
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true,
-    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
 }));
+
+// Permitir upgrade HTTP→WS (necesario para WebSocket con helmet)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Upgrade', 'websocket');
+  next();
+});
 
 // CORS
 app.use(cors({
