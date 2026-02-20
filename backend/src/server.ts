@@ -34,6 +34,7 @@ import productRoutes from './routes/productRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import { WebSocketServer } from 'ws';
 import { initSSP } from './services/sspService';
+import paymentRoutes from './routes/paymentRoutes';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
 import {
   createBatch,
@@ -126,7 +127,7 @@ const authLimiter = rateLimit({
     message: 'Demasiados intentos de login, intenta más tarde',
     skipSuccessfulRequests: true,
 });
-
+app.use('/api/payment', paymentRoutes);
 // ==================== TIPOS ====================
 
 interface User {
