@@ -9,7 +9,7 @@ interface CashPaymentProps {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-const WS_URL  = import.meta.env.VITE_WS_URL  || 'ws://localhost:8081';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
 
 export function CashPayment({ total, orderId, onSuccess, onCancel }: CashPaymentProps) {
   const [status, setStatus]         = useState<'waiting' | 'processing' | 'success' | 'error'>('waiting');

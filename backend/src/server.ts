@@ -34,6 +34,7 @@ import productRoutes from './routes/productRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import { WebSocketServer } from 'ws';
 import { initSSP } from './services/sspService';
+import http from 'http';
 import paymentRoutes from './routes/paymentRoutes';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
 import {
@@ -45,14 +46,15 @@ import {
 } from './services/batch.service';
 
 // ==================== CONFIGURACIÓN ====================
-
+const httpServer = http.createServer(app);
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
-const wss = new WebSocketServer({ port: 8081 });
-console.log('[WS] WebSocket server escuchando en puerto 8081');
+const wss = new WebSocketServer({ server: httpServer });
+console.log('[WS] WebSocket server adjunto al servidor HTTP');
 
-const SSP_PORT = process.env.SSP_PORT || '/dev/ttyUSB0';
+
+const SSP_PORT = process.env.SSP_PORT || 'COM8';
 initSSP(wss, SSP_PORT);
 
 // ✅ CORREGIDO: Secretos JWT son OBLIGATORIOS (Seguridad crítica)
@@ -989,14 +991,8 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // ==================== INICIO DEL SERVIDOR ====================
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📏 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔒 Security features enabled`);
-    console.log(`🎆 Loyalty points system enabled`);
-    
-    // Iniciar el scheduler de reportes automáticos
-    startReportScheduler();
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
 
 // Manejo de cierre graceful
