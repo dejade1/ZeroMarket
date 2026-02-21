@@ -47,17 +47,19 @@ export class SSPBus extends EventEmitter {
         autoOpen: false,
         });
 
-      this.port.on('data', (chunk: Buffer) => this.onData(chunk));
-      this.port.on('error', (err: Error) => {
-        console.error('[SSPBus] Error serial:', err.message);
-        this.emit('error', err);
-      });
-
+      
       this.port.open((err) => {
         if (err) return reject(err);
+
+        // Registrar listener DESPUÉS de abrir
+        this.port!.on('data', (chunk: Buffer) => this.onData(chunk));
+        this.port!.on('error', (err: Error) => {
+            console.error('[SSPBus] Error serial:', err.message);
+            this.emit('error', err);
+        });
+
         console.log(`[SSPBus] Puerto ${this.portName} abierto`);
-        // Esperar 500ms para que el hardware se estabilice antes del primer comando
-        setTimeout(() => resolve(), 500);
+        setTimeout(() => resolve(), 1500);
         });
     });
   }
