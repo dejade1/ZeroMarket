@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { buildPacket, parseResponse, SSPResponse } from './ssp-packet';
 
 const POLL_INTERVAL_MS = 200;   // PDF: máx 1000ms, recomendado ~200ms
-const CMD_TIMEOUT_MS   = 2000;  // tiempo máximo esperando respuesta
+const CMD_TIMEOUT_MS   = 5000;  // tiempo máximo esperando respuesta
 const MAX_RETRIES      = 3;
 
 export interface BusCommand {
@@ -40,12 +40,12 @@ export class SSPBus extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.port = new SerialPort({
         path:     this.portName,
-        baudRate: 9600,
+        baudRate: parseInt(process.env.SSP_BAUD_RATE || '9600'),
         dataBits: 8,
         stopBits: 2,
         parity:   'none',
         autoOpen: false,
-      });
+        });
 
       this.port.on('data', (chunk: Buffer) => this.onData(chunk));
       this.port.on('error', (err: Error) => {
@@ -56,8 +56,9 @@ export class SSPBus extends EventEmitter {
       this.port.open((err) => {
         if (err) return reject(err);
         console.log(`[SSPBus] Puerto ${this.portName} abierto`);
-        resolve();
-      });
+        // Esperar 500ms para que el hardware se estabilice antes del primer comando
+        setTimeout(() => resolve(), 500);
+        });
     });
   }
 
