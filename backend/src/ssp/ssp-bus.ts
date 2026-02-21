@@ -75,7 +75,7 @@ export class SSPBus extends EventEmitter {
   registerAddress(address: number) {
     if (!this.pollAddresses.includes(address)) {
       this.pollAddresses.push(address);
-      this.seqBits.set(address, false);
+      this.seqBits.set(address, true);
     }
   }
 
@@ -149,7 +149,8 @@ export class SSPBus extends EventEmitter {
 
       const seqBit = this.seqBits.get(address) ?? false;
       const packet = buildPacket({ address, seqBit, data });
-
+        console.log(`[SSPBus] TX → addr=0x${address.toString(16)} seqBit=${seqBit} packet: ${packet.toString('hex')}`);
+     
       this.pendingResolve = resolve;
       this.pendingReject  = reject;
       this.pendingAddress = address;
