@@ -37,32 +37,31 @@ export class SSPBus extends EventEmitter {
 
   // ── Apertura del puerto ──────────────────────────────────────────────────
   async open(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.port = new SerialPort({
-        path:     this.portName,
-        baudRate: parseInt(process.env.SSP_BAUD_RATE || '9600'),
-        dataBits: 8,
-        stopBits: 2,
-        parity:   'none',
-        autoOpen: false,
-        });
-
-      
-      this.port.open((err) => {
-        if (err) return reject(err);
-
-        // Registrar listener DESPUÉS de abrir
-        this.port!.on('data', (chunk: Buffer) => this.onData(chunk));
-        this.port!.on('error', (err: Error) => {
-            console.error('[SSPBus] Error serial:', err.message);
-            this.emit('error', err);
-        });
-
-        console.log(`[SSPBus] Puerto ${this.portName} abierto`);
-        setTimeout(() => resolve(), 1500);
-        });
+  return new Promise((resolve, reject) => {
+    const sp = new SerialPort({
+      path:     this.portName,
+      baudRate: parseInt(process.env.SSP_BAUD_RATE || '9600'),
+      dataBits: 8,
+      stopBits: 2,
+      parity:   'none',
+      autoOpen: false,
     });
-  }
+
+    sp.on('data', (chunk: Buffer) => this.onData(chunk));
+    sp.on('error', (err: Error) => {
+      console.error('[SSPBus] Error serial:', err.message);
+      this.emit('error', err);
+    });
+
+    sp.open((err) => {
+      if (err) return reject(err);
+      this.port = sp; // asignar DESPUÉS de que open confirma éxito
+      console.log(`[SSPBus] Puerto ${this.portName} abierto — baud: ${process.env.SSP_BAUD_RATE || '9600'}`);
+      setTimeout(() => resolve(), 1500);
+    });
+  });
+}
+
 
   async close(): Promise<void> {
     this.stopPolling();
