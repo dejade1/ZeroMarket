@@ -172,55 +172,62 @@ export class SSPBus extends EventEmitter {
 
   // ── Recepción de datos ───────────────────────────────────────────────────
   private onData(chunk: Buffer) {
-    this.rxBuffer = Buffer.concat([this.rxBuffer, chunk]);
+  console.log(`[SSPBus] RAW RX (${chunk.length} bytes): ${chunk.toString('hex')}`);
+  this.rxBuffer = Buffer.concat([this.rxBuffer, chunk]);
+  this.tryParseResponse();
+}
+
+private tryParseResponse() {
+  // Buscar STX 0x7F
+  const stxIdx = this.rxBuffer.indexOf(0x7f);
+  if (stxIdx < 0) { this.rxBuffer = Buffer.alloc(0); return; }
+  if (stxIdx > 0)  this.rxBuffer = this.rxBuffer.slice(stxIdx);
+
+  if (this.rxBuffer.length < 3) return;
+
+  // SEQID puede tener 0x7F si el address es 0x7F — poco probable pero manejarlo
+  // rxBuffer[0]=STX(0x7F), rxBuffer[1]=SEQID, rxBuffer[2]=LENGTH
+  const seqId    = this.rxBuffer[1];
+  const length   = this.rxBuffer[2];
+  const minExpected = 1 + 1 + 1 + length + 2;
+
+  console.log(`[SSPBus] Frame: seqId=0x${seqId.toString(16)} len=${length} bufLen=${this.rxBuffer.length} need=${minExpected}`);
+
+  if (this.rxBuffer.length < minExpected) return;
+
+  const frame = this.rxBuffer.slice(0, minExpected);
+  this.rxBuffer = this.rxBuffer.slice(minExpected);
+
+  console.log(`[SSPBus] Frame completo: ${frame.toString('hex')}`);
+
+  const response = parseResponse(frame);
+  if (!response) {
+    console.warn('[SSPBus] parseResponse retornó null');
     this.tryParseResponse();
+    return;
   }
 
-  private tryParseResponse() {
-    // Buscar STX 0x7F
-    const stxIdx = this.rxBuffer.indexOf(0x7f);
-    if (stxIdx < 0) { this.rxBuffer = Buffer.alloc(0); return; }
-    if (stxIdx > 0)  this.rxBuffer = this.rxBuffer.slice(stxIdx);
+  console.log(`[SSPBus] Parsed: addr=0x${response.address.toString(16)} generic=0x${response.generic.toString(16)} valid=${response.valid}`);
 
-    // Necesitamos al menos STX + SEQID + LENGTH = 3 bytes para saber tamaño
-    if (this.rxBuffer.length < 3) return;
-
-    // LENGTH está en byte 2 (índice 2), pero hay que considerar byte-stuffing
-    // Estimamos el tamaño mínimo: STX(1) + SEQID(1) + LEN(1) + DATA(len) + CRC(2)
-    const rawLength = this.rxBuffer[2];
-    const minExpected = 1 + 1 + 1 + rawLength + 2; // STX+SEQID+LEN+DATA+CRC
-
-    if (this.rxBuffer.length < minExpected) return; // esperar más datos
-
-    const frame = this.rxBuffer.slice(0, minExpected);
-    this.rxBuffer = this.rxBuffer.slice(minExpected);
-
-    const response = parseResponse(frame);
-    if (!response) { this.tryParseResponse(); return; }
-
-    if (!response.valid) {
-      console.warn(`[SSPBus] CRC inválido de 0x${response.address.toString(16)}`);
-      this.tryParseResponse();
-      return;
-    }
-
-    // Si hay un comando pendiente para esta dirección, resolverlo
-    if (this.pendingResolve && response.address === this.pendingAddress) {
-      clearTimeout(this.timeoutHandle!);
-
-      // Alternar SEQ bit solo en respuesta exitosa
-      const currentSeq = this.seqBits.get(response.address) ?? false;
-      this.seqBits.set(response.address, !currentSeq);
-
-      const resolve = this.pendingResolve;
-      this.pendingResolve = null;
-      this.pendingReject  = null;
-      resolve(response);
-    } else {
-      // Respuesta de poll espontánea — emitir como evento
-      this.emit('response', response.address, response);
-    }
-
+  if (!response.valid) {
+    console.warn(`[SSPBus] CRC inválido de 0x${response.address.toString(16)}`);
     this.tryParseResponse();
+    return;
   }
+
+  if (this.pendingResolve && response.address === this.pendingAddress) {
+    clearTimeout(this.timeoutHandle!);
+    const currentSeq = this.seqBits.get(response.address) ?? false;
+    this.seqBits.set(response.address, !currentSeq);
+    const resolve = this.pendingResolve;
+    this.pendingResolve = null;
+    this.pendingReject  = null;
+    resolve(response);
+  } else {
+    console.log(`[SSPBus] Respuesta sin comando pendiente — addr=0x${response.address.toString(16)} pendingAddr=0x${this.pendingAddress.toString(16)}`);
+    this.emit('response', response.address, response);
+  }
+
+  this.tryParseResponse();
+ }
 }
