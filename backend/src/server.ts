@@ -33,9 +33,9 @@ import emailRoutes from './routes/emailRoutes';
 import productRoutes from './routes/productRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import { WebSocketServer } from 'ws';
-import { initSSP } from './services/sspService';
 import http from 'http';
 import paymentRoutes from './routes/paymentRoutes';
+import { initSSP, stopSSP } from './services/sspService';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler';
 import {
   createBatch,
@@ -1011,17 +1011,19 @@ httpServer.listen(PORT, () => {
 
 // Manejo de cierre graceful
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, closing server...');
-    stopReportScheduler();
-    await prisma.$disconnect();
-    process.exit(0);
+  console.log('SIGTERM received, closing server...');
+  stopReportScheduler();
+  await stopSSP();          // ← agregar
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-    console.log('SIGINT received, closing server...');
-    stopReportScheduler();
-    await prisma.$disconnect();
-    process.exit(0);
+  console.log('SIGINT received, closing server...');
+  stopReportScheduler();
+  await stopSSP();          // ← agregar
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 console.log(`📦 Products API enabled`);
