@@ -1,11 +1,12 @@
 import { WebSocketServer } from 'ws';
+import { SerialPort } from 'serialport';
 
 const SSP = require('@kybarg/ssp');
-
 const SCS_ADDRESS = 0x10;
 
 let nv200: any = null;
 let scs:   any = null;
+let sharedPort: any = null;
 let wss: WebSocketServer | null = null;
 let currentOrderId: string | null = null;
 let currentOrderTotal: number = 0;
@@ -37,28 +38,30 @@ async function connectDevices() {
   }
 
   try {
-    // --- NV200 Spectral (Billetes) ---
-    nv200 = new SSP({ id: 0 });
-
-    nv200.on('OPEN', async () => {
-      console.log('[NV200] Puerto abierto');
-      try {
-        await nv200.command('SYNC');
-        await nv200.command('HOST_PROTOCOL_VERSION', { version: 8 });
-        await nv200.command('SETUP_REQUEST');
-        await nv200.command('SET_INHIBITS', { channels: [true, true, true, true, false, false, false, false] });
-        await nv200.command('ENABLE');
-        console.log('[NV200] ✅ Listo');
-        broadcast({ device: 'NV200', event: 'READY' });
-      } catch (e: any) {
-        console.error('[NV200] Error inicializando:', e.message ?? e);
-      }
+    // Puerto serial compartido para bus RS485
+    sharedPort = new SerialPort({
+      path: sspPort,
+      baudRate: 9600,
+      dataBits: 8,
+      stopBits: 2,
+      parity: 'none',
+      autoOpen: false,
     });
+
+    await new Promise<void>((resolve, reject) => {
+      sharedPort.open((err: any) => err ? reject(err) : resolve());
+    });
+    console.log(`[SSP] Puerto serial ${sspPort} abierto`);
+
+    // NV200 en address 0x00 — comparte sharedPort
+    nv200 = new SSP({ id: 0 });
+    nv200.port = sharedPort;
 
     nv200.on('NOTE_CREDIT', (info: any) => {
       const billValues: Record<number, number> = { 1: 100, 2: 500, 3: 1000, 4: 2000 };
       const value = billValues[info.channel] ?? 0;
       amountInserted += value;
+      console.log(`[NV200] Billete canal ${info.channel} = ${value} centavos, total: ${amountInserted}`);
       broadcast({
         device: 'NV200', event: 'NOTE_CREDIT',
         channel: info.channel,
@@ -68,8 +71,8 @@ async function connectDevices() {
       checkPaymentComplete();
     });
 
-    nv200.on('STACKED',      () => broadcast({ device: 'NV200', event: 'STACKED' }));
-    nv200.on('REJECTED',     () => broadcast({ device: 'NV200', event: 'REJECTED' }));
+    nv200.on('STACKED',      () => { console.log('[NV200] Billete apilado'); broadcast({ device: 'NV200', event: 'STACKED' }); });
+    nv200.on('REJECTED',     () => { console.log('[NV200] Billete rechazado'); broadcast({ device: 'NV200', event: 'REJECTED' }); });
     nv200.on('UNSAFE_JAM',   () => broadcast({ device: 'NV200', event: 'JAM' }));
     nv200.on('STACKER_FULL', () => broadcast({ device: 'NV200', event: 'STACKER_FULL' }));
     nv200.on('ERROR', (err: any) => {
@@ -77,28 +80,22 @@ async function connectDevices() {
       broadcast({ device: 'NV200', event: 'ERROR', message: err?.message ?? String(err) });
     });
 
-    await nv200.open(sspPort);
-    console.log('[NV200] open() llamado en', sspPort);
+    // Inicializar NV200
+    await nv200.command('SYNC');
+    await nv200.command('HOST_PROTOCOL_VERSION', { version: 8 });
+    await nv200.command('SETUP_REQUEST');
+    await nv200.command('SET_INHIBITS', { channels: [true, true, true, true, false, false, false, false] });
+    await nv200.command('ENABLE');
+    console.log('[NV200] ✅ Inicializado y habilitado');
+    broadcast({ device: 'NV200', event: 'READY' });
 
-    // --- SMART Coin System (Monedas) ---
+    // SCS en address 0x10 — comparte sharedPort
     scs = new SSP({ id: SCS_ADDRESS });
-
-    scs.on('OPEN', async () => {
-      console.log('[SCS] Puerto abierto');
-      try {
-        await scs.command('SYNC');
-        await scs.command('HOST_PROTOCOL_VERSION', { version: 8 });
-        await scs.command('SETUP_REQUEST');
-        await scs.command('ENABLE');
-        console.log('[SCS] ✅ Listo');
-        broadcast({ device: 'SCS', event: 'READY' });
-      } catch (e: any) {
-        console.error('[SCS] Error inicializando:', e.message ?? e);
-      }
-    });
+    scs.port = sharedPort;
 
     scs.on('COIN_CREDIT', (info: any) => {
       amountInserted += info.value ?? 0;
+      console.log(`[SCS] Moneda ${info.value} centavos, total: ${amountInserted}`);
       broadcast({
         device: 'SCS', event: 'COIN_CREDIT',
         value: info.value,
@@ -113,14 +110,21 @@ async function connectDevices() {
       broadcast({ device: 'SCS', event: 'ERROR', message: err?.message ?? String(err) });
     });
 
-    await scs.open(sspPort);
-    console.log('[SCS] open() llamado en', sspPort);
+    // Inicializar SCS
+    await scs.command('SYNC');
+    await scs.command('HOST_PROTOCOL_VERSION', { version: 8 });
+    await scs.command('SETUP_REQUEST');
+    await scs.command('ENABLE');
+    console.log('[SCS] ✅ Inicializado y habilitado');
+    broadcast({ device: 'SCS', event: 'READY' });
 
   } catch (err: any) {
-    console.error('[SSP] Error abriendo dispositivos:', err?.message ?? err);
+    console.error('[SSP] Error inicializando dispositivos:', err?.message ?? err);
     nv200 = null;
     scs   = null;
-    devicesInitialized = false; // permitir reintento en el próximo pago
+    if (sharedPort?.isOpen) sharedPort.close();
+    sharedPort = null;
+    devicesInitialized = false;
   }
 }
 
@@ -135,7 +139,7 @@ export async function startPaymentSession(orderId: string, totalCents: number) {
     if (nv200) await nv200.command('ENABLE');
     if (scs)   await scs.command('ENABLE');
   } catch (e: any) {
-    console.warn('[SSP] Advertencia al habilitar dispositivos:', e.message ?? e);
+    console.warn('[SSP] Advertencia al re-habilitar dispositivos:', e.message ?? e);
   }
 
   broadcast({ event: 'PAYMENT_SESSION_STARTED', orderId, totalCents });
@@ -147,19 +151,12 @@ async function checkPaymentComplete() {
   if (amountInserted < currentOrderTotal) return;
 
   const change = amountInserted - currentOrderTotal;
-
   try {
     if (nv200) await nv200.command('DISABLE');
     if (scs)   await scs.command('DISABLE');
   } catch (_) {}
 
-  broadcast({
-    event: 'PAYMENT_COMPLETE',
-    orderId: currentOrderId,
-    totalPaid: amountInserted,
-    change,
-  });
-
+  broadcast({ event: 'PAYMENT_COMPLETE', orderId: currentOrderId, totalPaid: amountInserted, change });
   if (change > 0 && scs) await giveChange(change);
 
   currentOrderId    = null;
