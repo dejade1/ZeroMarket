@@ -1,13 +1,13 @@
-// CRC16 con polinomio X^16 + X^15 + X^2 + 1, seed 0xFFFF (según PDF GA02204)
+// Forward CRC-16, polynomial 0x8005, seed 0xFFFF — MSB-first (PDF GA02204)
 export function crc16(data: Buffer): number {
   let crc = 0xffff;
   for (const byte of data) {
-    crc ^= byte;
+    crc ^= (byte << 8);
     for (let i = 0; i < 8; i++) {
-      if (crc & 0x0001) {
-        crc = (crc >> 1) ^ 0x8005;
+      if (crc & 0x8000) {
+        crc = ((crc << 1) & 0xffff) ^ 0x8005;
       } else {
-        crc >>= 1;
+        crc = (crc << 1) & 0xffff;
       }
     }
   }
