@@ -1,12 +1,10 @@
 import { WebSocketServer } from 'ws';
-import { SerialPort } from 'serialport';
-
 const SSP = require('@kybarg/ssp');
-const SCS_ADDRESS = 0x10;
 
-let nv200: any = null;
-let scs:   any = null;
-let sharedPort: any = null;
+const NV200_ADDRESS = 0x00;
+const SCS_ADDRESS   = 0x10;
+
+let device: any   = null; // Una sola instancia SSP, cambiamos id por comando
 let wss: WebSocketServer | null = null;
 let currentOrderId: string | null = null;
 let currentOrderTotal: number = 0;
@@ -22,10 +20,22 @@ function broadcast(data: object) {
   });
 }
 
+async function sendCommand(address: number, command: string, args?: any) {
+  if (!device) return;
+  const prevId = device.config.id;
+  device.config.id = address;
+  try {
+    const result = await device.command(command, args);
+    return result;
+  } finally {
+    device.config.id = prevId;
+  }
+}
+
 export function initSSP(wsServer: WebSocketServer, portName?: string) {
   wss = wsServer;
   sspPort = portName || process.env.SSP_PORT || '';
-  console.log(`[SSP] Servicio SSP listo. Puerto configurado: "${sspPort || 'no definido'}"`);
+  console.log(`[SSP] Servicio SSP listo. Puerto: "${sspPort || 'no definido'}"`);
 }
 
 async function connectDevices() {
@@ -38,30 +48,55 @@ async function connectDevices() {
   }
 
   try {
-    // Puerto serial compartido para bus RS485
-    sharedPort = new SerialPort({
-      path: sspPort,
-      baudRate: 9600,
-      dataBits: 8,
-      stopBits: 2,
-      parity: 'none',
-      autoOpen: false,
+    // Una sola instancia, arrancamos con id=0 (NV200)
+    device = new SSP({
+      id: NV200_ADDRESS,
+      timeout: 3000,
+      commandRetries: 3,
+      pollingInterval: 300,
     });
 
-    await new Promise<void>((resolve, reject) => {
-      sharedPort.open((err: any) => err ? reject(err) : resolve());
+    device.on('OPEN', async () => {
+      console.log(`[SSP] Puerto ${sspPort} abierto`);
+
+      try {
+        // --- Inicializar NV200 (address 0x00) ---
+        await sendCommand(NV200_ADDRESS, 'SYNC');
+        await sendCommand(NV200_ADDRESS, 'HOST_PROTOCOL_VERSION', { version: 8 });
+        await sendCommand(NV200_ADDRESS, 'SETUP_REQUEST');
+        await sendCommand(NV200_ADDRESS, 'SET_INHIBITS', {
+          channels: [true, true, true, true, false, false, false, false],
+        });
+        await sendCommand(NV200_ADDRESS, 'ENABLE');
+        console.log('[NV200] ✅ Habilitado');
+        broadcast({ device: 'NV200', event: 'READY' });
+      } catch (e: any) {
+        console.error('[NV200] Error init:', e?.error ?? e?.message ?? e);
+      }
+
+      try {
+        // --- Inicializar SCS (address 0x10) ---
+        await sendCommand(SCS_ADDRESS, 'SYNC');
+        await sendCommand(SCS_ADDRESS, 'HOST_PROTOCOL_VERSION', { version: 8 });
+        await sendCommand(SCS_ADDRESS, 'SETUP_REQUEST');
+        await sendCommand(SCS_ADDRESS, 'ENABLE');
+        console.log('[SCS] ✅ Habilitado');
+        broadcast({ device: 'SCS', event: 'READY' });
+      } catch (e: any) {
+        console.error('[SCS] Error init:', e?.error ?? e?.message ?? e);
+      }
+
+      // Polling continuo — recibe eventos de AMBOS dispositivos
+      device.config.id = NV200_ADDRESS;
+      await device.poll(true);
     });
-    console.log(`[SSP] Puerto serial ${sspPort} abierto`);
 
-    // NV200 en address 0x00 — comparte sharedPort
-    nv200 = new SSP({ id: 0 });
-    nv200.port = sharedPort;
-
-    nv200.on('NOTE_CREDIT', (info: any) => {
+    // Eventos NV200
+    device.on('NOTE_CREDIT', (info: any) => {
       const billValues: Record<number, number> = { 1: 100, 2: 500, 3: 1000, 4: 2000 };
       const value = billValues[info.channel] ?? 0;
       amountInserted += value;
-      console.log(`[NV200] Billete canal ${info.channel} = ${value} centavos, total: ${amountInserted}`);
+      console.log(`[NV200] Billete canal ${info.channel} → $${(value/100).toFixed(2)}, total: $${(amountInserted/100).toFixed(2)}`);
       broadcast({
         device: 'NV200', event: 'NOTE_CREDIT',
         channel: info.channel,
@@ -71,31 +106,9 @@ async function connectDevices() {
       checkPaymentComplete();
     });
 
-    nv200.on('STACKED',      () => { console.log('[NV200] Billete apilado'); broadcast({ device: 'NV200', event: 'STACKED' }); });
-    nv200.on('REJECTED',     () => { console.log('[NV200] Billete rechazado'); broadcast({ device: 'NV200', event: 'REJECTED' }); });
-    nv200.on('UNSAFE_JAM',   () => broadcast({ device: 'NV200', event: 'JAM' }));
-    nv200.on('STACKER_FULL', () => broadcast({ device: 'NV200', event: 'STACKER_FULL' }));
-    nv200.on('ERROR', (err: any) => {
-      console.error('[NV200] Error:', err?.message ?? err);
-      broadcast({ device: 'NV200', event: 'ERROR', message: err?.message ?? String(err) });
-    });
-
-    // Inicializar NV200
-    await nv200.command('SYNC');
-    await nv200.command('HOST_PROTOCOL_VERSION', { version: 8 });
-    await nv200.command('SETUP_REQUEST');
-    await nv200.command('SET_INHIBITS', { channels: [true, true, true, true, false, false, false, false] });
-    await nv200.command('ENABLE');
-    console.log('[NV200] ✅ Inicializado y habilitado');
-    broadcast({ device: 'NV200', event: 'READY' });
-
-    // SCS en address 0x10 — comparte sharedPort
-    scs = new SSP({ id: SCS_ADDRESS });
-    scs.port = sharedPort;
-
-    scs.on('COIN_CREDIT', (info: any) => {
+    device.on('COIN_CREDIT', (info: any) => {
       amountInserted += info.value ?? 0;
-      console.log(`[SCS] Moneda ${info.value} centavos, total: ${amountInserted}`);
+      console.log(`[SCS] Moneda $${((info.value ?? 0)/100).toFixed(2)}, total: $${(amountInserted/100).toFixed(2)}`);
       broadcast({
         device: 'SCS', event: 'COIN_CREDIT',
         value: info.value,
@@ -105,25 +118,21 @@ async function connectDevices() {
       checkPaymentComplete();
     });
 
-    scs.on('ERROR', (err: any) => {
-      console.error('[SCS] Error:', err?.message ?? err);
-      broadcast({ device: 'SCS', event: 'ERROR', message: err?.message ?? String(err) });
+    device.on('STACKED',      () => broadcast({ device: 'NV200', event: 'STACKED' }));
+    device.on('REJECTED',     () => broadcast({ device: 'NV200', event: 'REJECTED' }));
+    device.on('UNSAFE_JAM',   () => broadcast({ device: 'NV200', event: 'JAM' }));
+    device.on('STACKER_FULL', () => broadcast({ device: 'NV200', event: 'STACKER_FULL' }));
+    device.on('ERROR', (err: any) => {
+      const msg = err?.message ?? String(err);
+      console.error('[SSP] Error:', msg);
+      broadcast({ event: 'ERROR', message: msg });
     });
 
-    // Inicializar SCS
-    await scs.command('SYNC');
-    await scs.command('HOST_PROTOCOL_VERSION', { version: 8 });
-    await scs.command('SETUP_REQUEST');
-    await scs.command('ENABLE');
-    console.log('[SCS] ✅ Inicializado y habilitado');
-    broadcast({ device: 'SCS', event: 'READY' });
+    await device.open(sspPort);
 
   } catch (err: any) {
-    console.error('[SSP] Error inicializando dispositivos:', err?.message ?? err);
-    nv200 = null;
-    scs   = null;
-    if (sharedPort?.isOpen) sharedPort.close();
-    sharedPort = null;
+    console.error('[SSP] Error abriendo puerto:', err?.message ?? err);
+    device = null;
     devicesInitialized = false;
   }
 }
@@ -136,14 +145,16 @@ export async function startPaymentSession(orderId: string, totalCents: number) {
   await connectDevices();
 
   try {
-    if (nv200) await nv200.command('ENABLE');
-    if (scs)   await scs.command('ENABLE');
+    if (device) {
+      await sendCommand(NV200_ADDRESS, 'ENABLE');
+      await sendCommand(SCS_ADDRESS,   'ENABLE');
+    }
   } catch (e: any) {
-    console.warn('[SSP] Advertencia al re-habilitar dispositivos:', e.message ?? e);
+    console.warn('[SSP] Advertencia al re-habilitar:', e?.error ?? e?.message ?? e);
   }
 
   broadcast({ event: 'PAYMENT_SESSION_STARTED', orderId, totalCents });
-  console.log(`[SSP] Sesión iniciada: orden ${orderId}, total: ${totalCents} centavos`);
+  console.log(`[SSP] Sesión iniciada: orden ${orderId}, total: $${(totalCents/100).toFixed(2)}`);
 }
 
 async function checkPaymentComplete() {
@@ -152,12 +163,12 @@ async function checkPaymentComplete() {
 
   const change = amountInserted - currentOrderTotal;
   try {
-    if (nv200) await nv200.command('DISABLE');
-    if (scs)   await scs.command('DISABLE');
+    await sendCommand(NV200_ADDRESS, 'DISABLE');
+    await sendCommand(SCS_ADDRESS,   'DISABLE');
   } catch (_) {}
 
   broadcast({ event: 'PAYMENT_COMPLETE', orderId: currentOrderId, totalPaid: amountInserted, change });
-  if (change > 0 && scs) await giveChange(change);
+  if (change > 0) await giveChange(change);
 
   currentOrderId    = null;
   currentOrderTotal = 0;
@@ -166,22 +177,22 @@ async function checkPaymentComplete() {
 
 async function giveChange(amountCents: number) {
   try {
-    await scs.command('PAYOUT_AMOUNT', {
+    await sendCommand(SCS_ADDRESS, 'PAYOUT_AMOUNT', {
       amount: amountCents,
       country: process.env.SSP_CURRENCY || 'USD',
       test: false,
     });
     broadcast({ device: 'SCS', event: 'DISPENSING_CHANGE', amount: amountCents });
   } catch (err: any) {
-    console.error('[SCS] Error dispensando cambio:', err?.message ?? err);
+    console.error('[SCS] Error dispensando cambio:', err?.error ?? err?.message ?? err);
   }
 }
 
 export async function cancelPaymentSession() {
   try {
-    if (nv200) await nv200.command('DISABLE');
-    if (scs)   await scs.command('DISABLE');
-    if (amountInserted > 0 && scs) await giveChange(amountInserted);
+    await sendCommand(NV200_ADDRESS, 'DISABLE');
+    await sendCommand(SCS_ADDRESS,   'DISABLE');
+    if (amountInserted > 0) await giveChange(amountInserted);
   } catch (_) {}
 
   broadcast({ event: 'PAYMENT_CANCELLED', refunded: amountInserted });
