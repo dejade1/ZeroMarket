@@ -122,6 +122,17 @@ export class SCS extends EventEmitter {
         .join(', ')
     );
 
+          // Activar mecanismo de aceptación (pay-in mode)
+      const optRes = await this.send(Buffer.from([
+        CMD.SET_OPTIONS,
+        0x01  // bit 0 = pay-in enabled
+      ]));
+      if (optRes.generic !== SSP_GENERIC.OK) {
+        console.warn(`[SCS] SET_OPTIONS warning: 0x${optRes.generic.toString(16)}`);
+      }
+      console.log('[SCS] SET_OPTIONS OK — mecanismo activado');
+
+
     const enRes = await this.send(Buffer.from([CMD.ENABLE]));
     if (enRes.generic !== SSP_GENERIC.OK) {
       throw new Error(`[SCS] ENABLE failed: 0x${enRes.generic.toString(16)}`);
