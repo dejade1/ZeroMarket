@@ -170,14 +170,22 @@ export class NV200 extends EventEmitter {
 
   // ── Poll manual — llamado desde sspService en el loop interleaved ─────────
 
-  async poll(): Promise<void> {
-    if (!this.ready) return;
-    // POLL_WITH_ACK (0x56): el dispositivo retiene el evento hasta EVENT_ACK (0x57)
-    const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
-    if (res.generic === SSP_GENERIC.OK) {
-      await this.handlePollResponse(res.data);
+// ── Después ───────────────────────────────────────────────────────────────────
+async poll(): Promise<void> {
+  if (!this.ready) return;
+  // Firmware 0432 no soporta POLL_WITH_ACK (0x56) → usar POLL básico (0x07)
+  // Con POLL básico: 0xF0 solo = idle, 0xF0 + eventos = hay eventos
+  const res = await this.send(Buffer.from([CMD.POLL]));
+  if (res.generic === SSP_GENERIC.OK) {
+    await this.handlePollResponse(res.data);
+  }
+  // Con 0xF4: el comando no fue reconocido — loguear una sola vez
+  else if (res.generic === SSP_GENERIC.OUT_OF_RANGE) {
+    if (this.ready) {
+      console.error('[NV200] POLL no soportado por este firmware — revisar versión');
     }
   }
+}
 
   // ── Manejo de eventos de poll ─────────────────────────────────────────────
 
@@ -360,16 +368,7 @@ export class NV200 extends EventEmitter {
 
     // EVENT_ACK (0x57): confirmar al dispositivo que procesamos los eventos
     // Solo si hubo eventos reales — evita ACKs innecesarios en idle
-    if (hasEvents) {
-      try {
-        await this.send(Buffer.from([CMD.EVENT_ACK]));
-      } catch (e) {
-        // No lanzar — el ACK fallido solo causa que el evento se repita en el siguiente poll
-        console.warn('[NV200] EVENT_ACK warning:', (e as Error).message);
-      }
-    }
-  }
-
+   
   // ── Parsear respuesta de SETUP_REQUEST ────────────────────────────────────
   // Estructura del payload (data sin byte genérico 0xF0):
   // [0]      = unit_type
