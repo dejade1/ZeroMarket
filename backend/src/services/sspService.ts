@@ -64,19 +64,131 @@ async function connectHardware(): Promise<boolean> {
     nv200 = new NV200(bus);
     scs   = new SCS(bus, currency);
 
+    //Fix 3 pool independiente
+// sspService.ts
+
+        private nv200Ready = false;
+        private scsReady   = false;
+        private pollTimer: NodeJS.Timeout | null = null;
+
+        async initSSP(): Promise<void> {
+        logger.info('[SSP] Inicializando hardware...');
+
+        // ── 1. NV200 (crítico — debe funcionar) ──────────────────────────
+        await this.nv200.init();
+        this.nv200Ready = true;
+        logger.info('[SSP] NV200 listo');
+
+        // ── 2. Arrancar polling de NV200 AHORA, antes de intentar SCS ────
+        this.startPollLoop();
+
+        // ── 3. Delay RS485: dar tiempo al bus antes de hablar con SCS ─────
+        await sleep(300); // 300ms es suficiente para asentamiento del bus
+
+        // ── 4. SCS (opcional — si falla, monedas deshabilitadas) ──────────
+        try {
+            await this.scs.init();
+            this.scsReady = true;
+            logger.info('[SSP] SCS listo — monedas habilitadas');
+        } catch (err) {
+            logger.warn('[SSP] SCS no disponible (monedas deshabilitadas):', err);
+            // NV200 sigue funcionando con polling activo
+        }
+        }
+
+        // ── Loop de polling interleaved NV200 + SCS ───────────────────────
+        private startPollLoop(): void {
+        if (this.pollTimer) return;
+
+        const POLL_INTERVAL = 200; // ms por ciclo completo
+
+        const tick = async () => {
+            if (!this.pollRunning) return;
+
+            const t0 = Date.now();
+
+            // Siempre poll NV200
+            try {
+            await this.nv200.poll();
+            } catch (e) {
+            logger.warn('[SSP] NV200 poll error:', e);
+            }
+
+            // Poll SCS solo si está listo
+            if (this.scsReady) {
+            await sleep(20); // pequeña pausa entre dispositivos en RS485
+            try {
+                await this.scs.poll();
+            } catch (e) {
+                logger.warn('[SSP] SCS poll error:', e);
+                // No marcar scsReady=false todavía — puede ser timeout puntual
+            }
+            }
+
+            const elapsed = Date.now() - t0;
+            const wait = Math.max(0, POLL_INTERVAL - elapsed);
+            this.pollTimer = setTimeout(tick, wait);
+        };
+
+        this.pollRunning = true;
+        this.pollTimer = setTimeout(tick, 0);
+        logger.info('[SSP] Poll loop iniciado');
+        }
+
+        stopPollLoop(): void {
+        this.pollRunning = false;
+        if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
+        }
+
+
+
     // 3. Escuchar eventos de crédito
-    nv200.on('credit', (_channel: number, valueCents: number) => {
-      amountInserted += valueCents;
-      console.log(`[SSP] 💵 Billete: +${valueCents}¢ | Total: ${amountInserted}¢ / ${currentOrderTotal}¢`);
-      broadcast({
-        event:          'CREDIT',
-        device:         'NV200',
-        valueCents,
-        amountInserted,
-        remaining:      Math.max(0, currentOrderTotal - amountInserted),
-      });
-      checkPaymentComplete();
-    });
+    // En initSSP() o setupEventListeners():
+
+this.nv200.on('NOTE_CREDIT', ({ amount, channel, currency }) => {
+  this.session.totalInserted += amount;
+  const remaining = Math.max(0, this.session.total - this.session.totalInserted);
+
+  logger.info(`[SSP] 💵 Billete acreditado: $${amount/100} | Inserido: $${this.session.totalInserted/100}`);
+
+  this.broadcast({
+    type: 'BILL_CREDIT',
+    amount,
+    channel,
+    currency,
+    totalInserted: this.session.totalInserted,
+    remaining,
+    orderId: this.session.orderId
+  });
+
+  if (this.session.totalInserted >= this.session.total) {
+    this.broadcast({ type: 'PAYMENT_COMPLETE', orderId: this.session.orderId });
+  }
+});
+
+this.nv200.on('NOTE_REJECTED', () => {
+  this.broadcast({ type: 'BILL_REJECTED' });
+});
+
+// SCS — monedas
+this.scs.on('COIN_CREDIT', ({ amount, channel }) => {
+  this.session.totalInserted += amount;
+  const remaining = Math.max(0, this.session.total - this.session.totalInserted);
+
+  this.broadcast({
+    type: 'COIN_CREDIT',
+    amount,
+    channel,
+    totalInserted: this.session.totalInserted,
+    remaining,
+    orderId: this.session.orderId
+  });
+
+  if (this.session.totalInserted >= this.session.total) {
+    this.broadcast({ type: 'PAYMENT_COMPLETE', orderId: this.session.orderId });
+  }
+});
+
 
     scs.on('valueAdded', (valueCents: number, country: string) => {
       amountInserted += valueCents;

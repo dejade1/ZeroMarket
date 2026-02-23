@@ -87,48 +87,51 @@ export class SCS extends EventEmitter {
   get deviceInfo() { return this.info; }
 
   // ── Secuencia de inicialización (PDF GA02205 sección 4.2) ────────────────
-  async init(): Promise<void> {
-    console.log('[SCS] Iniciando secuencia de setup...');
+  // scs.ts  ─ método init()
+async init(): Promise<void> {
+  logger.info('[SCS] Iniciando secuencia de setup...');
 
-    // 1. SYNC
-    await this.send(Buffer.from([CMD.SYNC]));
-    console.log('[SCS] SYNC OK');
+  // 1. SYNC
+  const syncRes = await this.bus.sendCommand(this.addr, SSP_CMD.SYNC, []);
+  if (syncRes.generic !== 0xF0) throw new Error('[SCS] SYNC failed');
+  logger.info('[SCS] SYNC OK');
 
-    // 2. HOST_PROTOCOL_VERSION 8
-    await this.send(Buffer.from([CMD.HOST_PROTOCOL_VERSION, 0x08]));
-    console.log('[SCS] Protocol version 8 OK');
-
-    // 3. SETUP_REQUEST — obtener denominaciones disponibles
-    const setupRes = await this.send(Buffer.from([CMD.SETUP_REQUEST]));
-    this.info = this.parseSetupResponse(setupRes.data);
-    console.log(`[SCS] Setup: ${this.info.numChannels} denominaciones, firmware ${this.info.firmwareVersion}`);
-
-    // 4. SET_DENOMINATION_ROUTE — todas las monedas al hopper (payout)
-    // route=0 → payout (reciclar), route=1 → cashbox
-    for (const denom of this.info.denominations) {
-      await this.setDenominationRoute(denom.value, 0); // 0 = payout/hopper
+  // 2. HOST_PROTOCOL_VERSION — SCS soporta máx v6, NO v8
+  //    Negociar desde 6 hacia abajo por si es firmware muy antiguo
+  let negotiatedVersion = 0;
+  for (const ver of [6, 5, 4]) {
+    const res = await this.bus.sendCommand(
+      this.addr, SSP_CMD.HOST_PROTOCOL_VERSION, [ver]
+    );
+    if (res.generic === 0xF0) {
+      negotiatedVersion = ver;
+      break;
     }
-    console.log('[SCS] Rutas configuradas → hopper');
-
-    // 5. SET_COIN_INHIBIT — habilitar todas las denominaciones
-    for (const denom of this.info.denominations) {
-      await this.setCoinInhibit(denom.value, true);
-    }
-    console.log('[SCS] Inhibits OK (todas las denominaciones habilitadas)');
-
-    // 6. SET_OPTIONS — velocidad alta, level check ON (PDF sección 4.2.7)
-    // REG0: bit1=LevelCheck(1), bit2=HighSpeed(1) → 0x06
-    // REG1: bit0=RejectEvents(1), bit4=ValueCoin(1) → 0x11
-    await this.send(Buffer.from([CMD.SET_OPTIONS, 0x06, 0x11]));
-    console.log('[SCS] Opciones configuradas');
-
-    // 7. ENABLE
-    await this.enable();
-
-    this.ready = true;
-    console.log('[SCS] ✅ Listo para aceptar monedas');
-    this.emit('ready', this.info);
+    logger.warn(`[SCS] Protocol v${ver} rechazado (0x${res.generic.toString(16)})`);
   }
+  if (!negotiatedVersion) throw new Error('[SCS] No se pudo negociar protocol version');
+  logger.info(`[SCS] Protocol version ${negotiatedVersion} OK`);
+
+  // 3. SETUP_REQUEST
+  const setupRes = await this.bus.sendCommand(this.addr, SSP_CMD.SETUP_REQUEST, []);
+  if (setupRes.generic !== 0xF0) throw new Error('[SCS] SETUP_REQUEST failed');
+  this.parseSetup(setupRes.data);
+  logger.info(`[SCS] Setup: ${this.channelCount} canales, firmware ${this.firmware}`);
+
+  // 4. SET_INHIBITS — habilitar todos los canales de monedas
+  const inhibitMask = this.buildInhibitMask(0xFFFF);
+  const inhRes = await this.bus.sendCommand(
+    this.addr, SSP_CMD.SET_INHIBITS, inhibitMask
+  );
+  if (inhRes.generic !== 0xF0) throw new Error('[SCS] SET_INHIBITS failed');
+  logger.info('[SCS] Inhibits OK');
+
+  // 5. ENABLE
+  const enRes = await this.bus.sendCommand(this.addr, SSP_CMD.ENABLE, []);
+  if (enRes.generic !== 0xF0) throw new Error('[SCS] ENABLE failed');
+  logger.info('[SCS] ENABLE OK — aceptando monedas');
+}
+
 
   async enable(): Promise<void> {
     await this.send(Buffer.from([CMD.ENABLE]));

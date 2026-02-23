@@ -116,41 +116,52 @@ export class NV200 extends EventEmitter {
   }
 
   // ── Manejo de eventos de poll ────────────────────────────────────────────
-  private handlePollResponse(res: SSPResponse) {
-    if (res.generic === SSP_GENERIC.OK && res.data.length === 0) return; // idle
+  // nv200.ts — método poll() / handlePollEvents()
 
-    // Puede haber múltiples eventos en una sola respuesta de poll
-    let i = 0;
-    while (i < res.data.length) {
-      const evt = res.data[i];
+private lastReadChannel = 0;
 
-      switch (evt) {
-        case EVT.SLAVE_RESET:
-          console.log('[NV200] ⚠️  Dispositivo reseteado');
-          this.ready = false;
-          this.emit('reset');
-          this.init().catch(e => console.error('[NV200] Re-init error:', e.message));
-          i++;
-          break;
+handlePollEvents(events: number[]): void {
+  let i = 0;
+  while (i < events.length) {
+    const evt = events[i];
 
-        case EVT.READ_NOTE: {
-          // Siguiente byte = número de canal
-          const channel = res.data[i + 1] ?? 0;
-          console.log(`[NV200] Leyendo billete canal ${channel}`);
-          this.emit('reading', channel);
-          i += 2;
-          break;
-        }
+    switch (evt) {
+      case 0xEF: // NOTE_READ — billete leído, contiene canal en siguiente byte
+        this.lastReadChannel = events[++i] ?? 0;
+        const readValue = this.channelValues[this.lastReadChannel - 1] ?? 0;
+        logger.info(`[NV200] NOTE_READ canal=${this.lastReadChannel} valor=$${readValue/100}`);
+        this.emit('NOTE_READ', { channel: this.lastReadChannel, amount: readValue });
+        break;
 
-        case EVT.CREDIT_NOTE: {
-          // Siguiente byte = número de canal
-          const channel = res.data[i + 1] ?? 0;
-          const value   = this.channelValue(channel);
-          console.log(`[NV200] 💵 Billete acreditado canal ${channel} = ${value} centavos`);
-          this.emit('credit', channel, value);
-          i += 2;
-          break;
-        }
+      case 0xED: // NOTE_STACKING — camino al stacker
+        logger.info(`[NV200] NOTE_STACKING canal=${this.lastReadChannel}`);
+        break;
+
+      case 0xCC: // NOTE_STACKED — *** CRÉDITO REAL ***
+        const creditChannel = this.lastReadChannel;
+        const creditAmount  = this.channelValues[creditChannel - 1] ?? 0;
+        logger.info(`[NV200] ✅ NOTE_STACKED — CRÉDITO $${creditAmount/100} canal=${creditChannel}`);
+        this.emit('NOTE_CREDIT', { channel: creditChannel, amount: creditAmount, currency: this.currency });
+        this.lastReadChannel = 0;
+        break;
+
+      case 0xEE: // NOTE_REJECTED
+        logger.warn('[NV200] NOTE_REJECTED');
+        this.emit('NOTE_REJECTED', {});
+        break;
+
+      case 0xF1: // SLAVE_RESET — el dispositivo se reinició
+        logger.warn('[NV200] SLAVE_RESET detectado — re-init necesario');
+        this.emit('RESET', {});
+        break;
+
+      default:
+        logger.debug(`[NV200] Evento desconocido: 0x${evt.toString(16)}`);
+    }
+    i++;
+  }
+}
+
 
         case EVT.NOTE_REJECTING:
           this.emit('rejecting');

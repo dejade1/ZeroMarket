@@ -20,7 +20,22 @@ export class SSPBus extends EventEmitter {
   private rxBuffer:   Buffer = Buffer.alloc(0);
 
   // SEQ bit independiente por dirección de dispositivo
-  private seqBits: Map<number, boolean> = new Map();
+ private seqBits = new Map<number, boolean>();
+
+ private getSeqBit(addr: number): boolean {
+  if (!this.seqBits.has(addr)) this.seqBits.set(addr, true);
+  return this.seqBits.get(addr)!;
+}
+
+/** Alterna el seqBit DESPUÉS de enviar un comando con éxito. */
+private flipSeqBit(addr: number): void {
+  this.seqBits.set(addr, !this.getSeqBit(addr));
+}
+
+/** Después de SYNC exitoso: el próximo comando a ese addr usa seqBit=false. */
+private resetSeqAfterSync(addr: number): void {
+  this.seqBits.set(addr, false);
+}
 
   // Cola FIFO de comandos pendientes
   private cmdQueue:    BusCommand[] = [];
