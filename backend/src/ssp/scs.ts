@@ -141,13 +141,29 @@ export class SCS extends EventEmitter {
     this.emit('enabled');
   }
 
-  async disable(): Promise<void> {
-    const res = await this.send(Buffer.from([CMD.DISABLE]));
-    if (res.generic !== SSP_GENERIC.OK) {
-      throw new Error(`[SCS] DISABLE failed: 0x${res.generic.toString(16)}`);
+   async disable(): Promise<void> {
+    let attempts = 0;
+
+    while (attempts < 3) {
+      const res = await this.send(Buffer.from([CMD.DISABLE]));
+
+      if (res.generic === SSP_GENERIC.OK) {
+        this.ready = false;
+        console.log('[SCS] DISABLE OK');
+        this.emit('disabled');
+        return;
+      }
+
+      attempts++;
+      console.warn(
+        `[SCS] DISABLE no confirmado (0x${res.generic.toString(16)}) — retry ${attempts}/3`
+      );
+      await new Promise(r => setTimeout(r, 150));
     }
+
+    // Si tras 3 intentos no responde OK, marcamos igual como deshabilitado
     this.ready = false;
-    console.log('[SCS] DISABLE OK');
+    console.error('[SCS] DISABLE no confirmado tras 3 intentos — forzando estado');
     this.emit('disabled');
   }
 

@@ -26,8 +26,13 @@ let initializing: boolean = false;
 let pollRunning:  boolean = false;
 let pollTimer:    NodeJS.Timeout | null = null;
 
+let paymentSessionActive: boolean = false;
+
+
 const POLL_INTERVAL_MS = 200; // ms entre ciclos NV200 + SCS
 const POLL_DEVICE_GAP  =  20; // ms entre NV200 poll y SCS poll en el mismo ciclo
+
+
 
 // ── Broadcast a todos los clientes WS conectados ─────────────────────────────
 
@@ -149,7 +154,7 @@ function startPollLoop(): void {
     }
 
     // Pequeña pausa entre dispositivos en el mismo bus RS485
-    if (scs?.isReady) {
+    if (scs?.isReady && paymentSessionActive) {
       await sleep(POLL_DEVICE_GAP);
       try {
         await scs.poll();
@@ -300,6 +305,7 @@ export async function startPaymentSession(
   currentOrderId    = orderId;
   currentOrderTotal = totalCents;
   amountInserted    = 0;
+  paymentSessionActive = true;
 
   const hwReady = await connectHardware();
 
@@ -346,6 +352,7 @@ export async function cancelPaymentSession(): Promise<void> {
   currentOrderId    = null;
   currentOrderTotal = 0;
   amountInserted    = 0;
+  paymentSessionActive = false;
 }
 
 // ── Verificar si el pago está completo ───────────────────────────────────────
@@ -385,6 +392,7 @@ async function checkPaymentComplete(): Promise<void> {
   currentOrderId    = null;
   currentOrderTotal = 0;
   amountInserted    = 0;
+  paymentSessionActive = false;
 }
 
 // ── Cierre limpio del servidor ────────────────────────────────────────────────
