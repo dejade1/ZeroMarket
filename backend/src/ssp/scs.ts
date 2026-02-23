@@ -15,7 +15,7 @@ const CMD = {
   SETUP_REQUEST:          0x05,
   SET_COIN_INHIBIT:       0x40,
   SET_DENOMINATION_ROUTE: 0x3b,
-  SET_OPTIONS:            0x4a,
+  SET_OPTIONS:            0x50,
   ENABLE:                 0x0a,
   DISABLE:                0x09,
   POLL:                   0x07,
@@ -142,30 +142,53 @@ export class SCS extends EventEmitter {
   }
 
    async disable(): Promise<void> {
-    let attempts = 0;
-
-    while (attempts < 3) {
-      const res = await this.send(Buffer.from([CMD.DISABLE]));
-
+  // 1. Drenar eventos pendientes sin importar si ready=false
+  //    El SCS puede estar con PAY_IN_ACTIVE en cola (0xC1) y rechaza DISABLE con 0xF4
+  for (let drain = 0; drain < 5; drain++) {
+    try {
+      const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
       if (res.generic === SSP_GENERIC.OK) {
-        this.ready = false;
-        console.log('[SCS] DISABLE OK');
-        this.emit('disabled');
-        return;
-      }
+        const hasPayInActive = res.data.includes(EVT.PAY_IN_ACTIVE);
+        const hasValueAdded  = res.data.includes(EVT.VALUE_ADDED);
 
-      attempts++;
-      console.warn(
-        `[SCS] DISABLE no confirmado (0x${res.generic.toString(16)}) — retry ${attempts}/3`
-      );
-      await new Promise(r => setTimeout(r, 150));
+        if (res.data.length > 0) {
+          // ACK para limpiar la cola
+          await this.send(Buffer.from([CMD.EVENT_ACK])).catch(() => {});
+        }
+
+        // Si no hay eventos activos de pay-in, podemos proceder
+        if (!hasPayInActive && !hasValueAdded) break;
+      }
+    } catch {
+      // Ignorar errores en el drain
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  // 2. Enviar DISABLE con reintentos
+  let attempts = 0;
+  while (attempts < 3) {
+    const res = await this.send(Buffer.from([CMD.DISABLE]));
+
+    if (res.generic === SSP_GENERIC.OK) {
+      this.ready = false;
+      console.log('[SCS] DISABLE OK');
+      this.emit('disabled');
+      return;
     }
 
-    // Si tras 3 intentos no responde OK, marcamos igual como deshabilitado
-    this.ready = false;
-    console.error('[SCS] DISABLE no confirmado tras 3 intentos — forzando estado');
-    this.emit('disabled');
+    attempts++;
+    console.warn(
+      `[SCS] DISABLE no confirmado (0x${res.generic.toString(16)}) — retry ${attempts}/3`
+    );
+    await new Promise(r => setTimeout(r, 200)); // aumentado de 150 a 200ms
   }
+
+  this.ready = false;
+  console.error('[SCS] DISABLE no confirmado tras 3 intentos — forzando estado');
+  this.emit('disabled');
+}
+
 
   async reset(): Promise<void> {
     await this.send(Buffer.from([CMD.RESET]));
@@ -174,12 +197,16 @@ export class SCS extends EventEmitter {
   }
 
   async poll(): Promise<void> {
-    if (!this.ready) return;
-    const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
-    if (res.generic === SSP_GENERIC.OK) {
-      await this.handlePollResponse(res.data);
-    }
+  if (!this.ready) return;  // guard para el poll loop externo
+  await this.pollInternal();
+}
+
+private async pollInternal(): Promise<void> {
+  const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
+  if (res.generic === SSP_GENERIC.OK) {
+    await this.handlePollResponse(res.data);
   }
+}
 
   async payoutAmount(amountCents: number): Promise<void> {
     const valueBuf = Buffer.alloc(4);
