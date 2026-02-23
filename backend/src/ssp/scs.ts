@@ -146,7 +146,7 @@ export class SCS extends EventEmitter {
   //    El SCS puede estar con PAY_IN_ACTIVE en cola (0xC1) y rechaza DISABLE con 0xF4
   for (let drain = 0; drain < 5; drain++) {
     try {
-      const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
+      const res = await this.send(Buffer.from([CMD.POLL]));
       if (res.generic === SSP_GENERIC.OK) {
         const hasPayInActive = res.data.includes(EVT.PAY_IN_ACTIVE);
         const hasValueAdded  = res.data.includes(EVT.VALUE_ADDED);
@@ -202,7 +202,7 @@ export class SCS extends EventEmitter {
 }
 
 private async pollInternal(): Promise<void> {
-  const res = await this.send(Buffer.from([CMD.POLL_WITH_ACK]));
+  const res = await this.send(Buffer.from([CMD.POLL]));
   if (res.generic === SSP_GENERIC.OK) {
     await this.handlePollResponse(res.data);
   }
@@ -496,13 +496,7 @@ private async pollInternal(): Promise<void> {
       }
     }
 
-    if (hasEvents) {
-      try {
-        await this.send(Buffer.from([CMD.EVENT_ACK]));
-      } catch (e) {
-        console.warn('[SCS] EVENT_ACK warning:', (e as Error).message);
-      }
-    }
+    
   }
 
   // ── parseSetupResponse CORREGIDO ──────────────────────────────────────────

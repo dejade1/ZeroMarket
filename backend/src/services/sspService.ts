@@ -302,6 +302,11 @@ export async function startPaymentSession(
   orderId:    string,
   totalCents: number
 ): Promise<void> {
+  // Guard: evitar sesión duplicada
+  if (paymentSessionActive) {
+    console.warn(`[SSP] Sesión ya activa (${currentOrderId}) — ignorando startSession ${orderId}`);
+    return;
+  }
   currentOrderId    = orderId;
   currentOrderTotal = totalCents;
   amountInserted    = 0;
@@ -331,6 +336,15 @@ export async function startPaymentSession(
 // ── Cancelar sesión de pago ───────────────────────────────────────────────────
 
 export async function cancelPaymentSession(): Promise<void> {
+
+    // Detener poll del SCS ANTES de deshabilitar
+  paymentSessionActive = false;
+  currentOrderId    = null;
+  currentOrderTotal = 0;
+
+  await sleep(POLL_INTERVAL_MS + POLL_DEVICE_GAP); // dejar que el tick actual termine
+
+  
   try { await nv200?.disable(); } catch (_) {}
   try { await scs?.disable();   } catch (_) {}
 
