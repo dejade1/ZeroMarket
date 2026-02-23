@@ -1,6 +1,31 @@
 // backend/src/services/sspService.ts
-// Orquestador NV200 + SCS — bus RS485 compartido COM7
+// Orquestador NV200 + SCS — bus RS485 compartido
 // Expone: initSSP, startPaymentSession, cancelPaymentSession, stopSSP
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// CORRECCIONES vs versión anterior:
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// 1. SCS poll SIEMPRE activo (no solo cuando paymentSessionActive)
+//    El PDF dice: "If the SMART Coin System does not receive a Poll within the
+//    poll timeout (10 seconds) it will timeout and the SMART Coin System will
+//    disable." — Sección 4.3.1
+//    Antes solo se polleaba el SCS durante sesión de pago activa, causando que
+//    el SCS se auto-deshabilitara por timeout de 10s entre sesiones.
+//
+// 2. Listener para VALUE_ADDED (0xBF) además de COIN_CREDIT (0xDF)
+//    El flujo real del SCS es:
+//      PAY_IN_ACTIVE (0xC1) → VALUE_ADDED (0xBF) [acumulativo]
+//    VALUE_ADDED da el valor TOTAL insertado desde el último poll.
+//    COIN_CREDIT (0xDF) da crédito individual por moneda.
+//    Dependiendo del firmware y opciones, puede usar uno u otro.
+//    Escuchamos ambos para máxima compatibilidad.
+//
+// 3. Re-enable de ambos dispositivos al iniciar sesión de pago
+//    Después de cancelar, ambos se deshabilitan. Al iniciar nueva sesión
+//    se re-habilitan explícitamente.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
 
 import { WebSocketServer } from 'ws';
 import { SSPBus } from '../ssp/ssp-bus';
@@ -28,11 +53,11 @@ let pollTimer:    NodeJS.Timeout | null = null;
 
 let paymentSessionActive: boolean = false;
 
+// Track VALUE_ADDED acumulativo
+let lastValueAddedTotal: number = 0;
 
 const POLL_INTERVAL_MS = 200; // ms entre ciclos NV200 + SCS
 const POLL_DEVICE_GAP  =  20; // ms entre NV200 poll y SCS poll en el mismo ciclo
-
-
 
 // ── Broadcast a todos los clientes WS conectados ─────────────────────────────
 
@@ -94,11 +119,9 @@ async function connectHardware(): Promise<boolean> {
     console.log('[SSP] NV200 listo');
 
     // ── 5. Arrancar poll loop AHORA — NV200 ya está ENABLED ───────────
-    //    Crítico: sin polling el NV200 devuelve el billete por watchdog
     startPollLoop();
 
     // ── 6. Delay RS485 antes de hablar con SCS ────────────────────────
-    //    Permite que el bus se asiente después del ENABLE del NV200
     await sleep(300);
 
     // ── 7. Init SCS (opcional — si falla, monedas deshabilitadas) ──────
@@ -107,7 +130,6 @@ async function connectHardware(): Promise<boolean> {
       console.log('[SSP] SCS listo — monedas habilitadas');
     } catch (err: any) {
       console.warn('[SSP] SCS no disponible (monedas deshabilitadas):', err.message);
-      // El poll loop sigue corriendo para NV200
     }
 
     // ── 8. Escuchar errores de bus ────────────────────────────────────
@@ -132,8 +154,8 @@ async function connectHardware(): Promise<boolean> {
 }
 
 // ── Poll loop interleaved NV200 + SCS ─────────────────────────────────────────
-// Un único loop secuencial: primero NV200, pausa, luego SCS.
-// Así nunca hay dos comandos en el bus RS485 al mismo tiempo.
+// CORRECCIÓN: SCS SIEMPRE se pollea, no solo cuando hay sesión activa.
+// El SCS tiene un timeout de 10 segundos — si no recibe POLL, se auto-deshabilita.
 
 function startPollLoop(): void {
   if (pollRunning) return;
@@ -153,13 +175,13 @@ function startPollLoop(): void {
       }
     }
 
-    // Pequeña pausa entre dispositivos en el mismo bus RS485
-    if (scs?.isReady && paymentSessionActive) {
+    // Poll SCS SIEMPRE que esté ready (no solo durante payment session)
+    // Sin polling constante, el SCS se auto-deshabilita por timeout de 10s
+    if (scs?.isReady) {
       await sleep(POLL_DEVICE_GAP);
       try {
         await scs.poll();
       } catch (e: any) {
-        // No deshabilitar SCS por un timeout puntual — puede ser transitorio
         console.warn('[SSP] SCS poll error:', e.message);
       }
     }
@@ -186,7 +208,10 @@ function stopPollLoop(): void {
 function registerEventListeners(): void {
   if (!nv200 || !scs) return;
 
-  // ── NV200: billete en camino al stacker (todavía no es crédito) ───
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NV200 EVENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
   nv200.on('NOTE_READ', ({ channel, amount }: { channel: number; amount: number }) => {
     console.log(`[SSP] Billete detectado: canal=${channel} $${(amount / 100).toFixed(2)}`);
     broadcast({
@@ -197,12 +222,15 @@ function registerEventListeners(): void {
     });
   });
 
-  // ── NV200: billete en el stacker = CRÉDITO REAL ───────────────────
   nv200.on('NOTE_CREDIT', ({ channel, amount, currency }: {
     channel:  number;
     amount:   number;
     currency: string;
   }) => {
+    if (!paymentSessionActive) {
+      console.warn(`[SSP] NOTE_CREDIT recibido sin sesión activa — ignorando`);
+      return;
+    }
     amountInserted += amount;
     const remaining = Math.max(0, currentOrderTotal - amountInserted);
     console.log(
@@ -221,19 +249,16 @@ function registerEventListeners(): void {
     checkPaymentComplete();
   });
 
-  // ── NV200: billete rechazado ──────────────────────────────────────
   nv200.on('NOTE_REJECTED', () => {
     console.warn('[SSP] Billete rechazado');
     broadcast({ event: 'BILL_REJECTED', device: 'NV200' });
   });
 
-  // ── NV200: eventos de estado ──────────────────────────────────────
   nv200.on('jam',            (type: string) => broadcast({ event: 'JAM',            device: 'NV200', type }));
   nv200.on('stackerFull',    ()             => broadcast({ event: 'STACKER_FULL',   device: 'NV200' }));
   nv200.on('fraud',          ()             => broadcast({ event: 'FRAUD',          device: 'NV200' }));
   nv200.on('cashboxRemoved', ()             => broadcast({ event: 'CASHBOX_REMOVED',device: 'NV200' }));
 
-  // ── NV200: reset inesperado — marcar para re-init ─────────────────
   nv200.on('reset', () => {
     console.warn('[SSP] NV200 reset inesperado');
     initialized  = false;
@@ -241,13 +266,21 @@ function registerEventListeners(): void {
     broadcast({ event: 'HARDWARE_RESET', device: 'NV200' });
   });
 
-  // ── SCS: moneda aceptada = CRÉDITO REAL ───────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SCS EVENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // COIN_CREDIT (0xDF): crédito individual por moneda
   scs.on('COIN_CREDIT', ({ amount, country }: { amount: number; country: string }) => {
+    if (!paymentSessionActive) {
+      console.warn(`[SSP] COIN_CREDIT recibido sin sesión activa — ignorando`);
+      return;
+    }
     amountInserted += amount;
     const remaining = Math.max(0, currentOrderTotal - amountInserted);
     console.log(
-      `[SSP] Moneda acreditada: $${(amount / 100).toFixed(2)} (${country}) | ` +
-      `Total insertado: $${(amountInserted / 100).toFixed(2)}`
+      `[SSP] Moneda acreditada (COIN_CREDIT): $${(amount / 100).toFixed(2)} (${country}) | ` +
+      `Total: $${(amountInserted / 100).toFixed(2)}`
     );
     broadcast({
       event:         'COIN_CREDIT',
@@ -260,13 +293,49 @@ function registerEventListeners(): void {
     checkPaymentComplete();
   });
 
-  // ── SCS: moneda rechazada ─────────────────────────────────────────
+  // VALUE_ADDED (0xBF): valor ACUMULATIVO desde el último poll
+  // Esto es el evento principal del SCS según el Implementation Script sección 4.3.2
+  scs.on('VALUE_ADDED', ({ amount, country }: { amount: number; country: string }) => {
+    if (!paymentSessionActive) {
+      console.warn(`[SSP] VALUE_ADDED recibido sin sesión activa — ignorando`);
+      return;
+    }
+    // VALUE_ADDED es acumulativo: amount = total desde último poll
+    // Calcular el delta real
+    const delta = amount - lastValueAddedTotal;
+    lastValueAddedTotal = amount;
+
+    if (delta > 0) {
+      amountInserted += delta;
+      const remaining = Math.max(0, currentOrderTotal - amountInserted);
+      console.log(
+        `[SSP] Moneda acreditada (VALUE_ADDED): delta=$${(delta / 100).toFixed(2)} ` +
+        `acum=$${(amount / 100).toFixed(2)} (${country}) | ` +
+        `Total: $${(amountInserted / 100).toFixed(2)}`
+      );
+      broadcast({
+        event:         'COIN_CREDIT',
+        amount:        delta,
+        country,
+        amountInserted,
+        remaining,
+        orderId:       currentOrderId,
+      });
+      checkPaymentComplete();
+    }
+  });
+
+  // PAY_IN_ACTIVE (0xC1): el detector de metal se activó, moneda en camino
+  scs.on('payInActive', () => {
+    console.log('[SSP] SCS: Pay-in active (moneda detectada en feeder)');
+    broadcast({ event: 'COIN_DETECTED', device: 'SCS' });
+  });
+
   scs.on('COIN_REJECTED', () => {
     console.warn('[SSP] Moneda rechazada');
     broadcast({ event: 'COIN_REJECTED', device: 'SCS' });
   });
 
-  // ── SCS: dispensando cambio ───────────────────────────────────────
   scs.on('dispensing', ({ amount, country }: { amount: number; country: string }) => {
     broadcast({ event: 'CHANGE_DISPENSING', amount, country });
   });
@@ -276,7 +345,6 @@ function registerEventListeners(): void {
     broadcast({ event: 'CHANGE_DISPENSED', amount, country });
   });
 
-  // ── SCS: eventos de estado ────────────────────────────────────────
   scs.on('jammed',    () => broadcast({ event: 'JAM',       device: 'SCS' }));
   scs.on('coinsLow',  () => broadcast({ event: 'COINS_LOW', device: 'SCS' }));
   scs.on('deviceFull',() => broadcast({ event: 'DEVICE_FULL',device: 'SCS' }));
@@ -289,7 +357,6 @@ function registerEventListeners(): void {
     broadcast({ event: 'INCOMPLETE_PAYOUT', device: 'SCS', paid, request, country });
   });
 
-  // ── SCS: reset inesperado ─────────────────────────────────────────
   scs.on('reset', () => {
     console.warn('[SSP] SCS reset inesperado');
     broadcast({ event: 'HARDWARE_RESET', device: 'SCS' });
@@ -302,24 +369,24 @@ export async function startPaymentSession(
   orderId:    string,
   totalCents: number
 ): Promise<void> {
-  // Guard: evitar sesión duplicada
   if (paymentSessionActive) {
     console.warn(`[SSP] Sesión ya activa (${currentOrderId}) — ignorando startSession ${orderId}`);
     return;
   }
-  currentOrderId    = orderId;
-  currentOrderTotal = totalCents;
-  amountInserted    = 0;
+  currentOrderId       = orderId;
+  currentOrderTotal    = totalCents;
+  amountInserted       = 0;
+  lastValueAddedTotal  = 0;  // Reset acumulador VALUE_ADDED
   paymentSessionActive = true;
 
   const hwReady = await connectHardware();
 
   if (hwReady) {
-    // Re-habilitar por si quedaron deshabilitados de una sesión anterior
+    // Re-habilitar por si quedaron deshabilitados
     try { await nv200?.enable(); } catch (e: any) {
       console.warn('[SSP] NV200 enable warning:', e.message);
     }
-    try { await scs?.enable();   } catch (e: any) {
+    try { await scs?.enable(); } catch (e: any) {
       console.warn('[SSP] SCS enable warning:', e.message);
     }
   }
@@ -336,22 +403,20 @@ export async function startPaymentSession(
 // ── Cancelar sesión de pago ───────────────────────────────────────────────────
 
 export async function cancelPaymentSession(): Promise<void> {
-
-    // Detener poll del SCS ANTES de deshabilitar
   paymentSessionActive = false;
-  currentOrderId    = null;
-  currentOrderTotal = 0;
+  const refundAmount   = amountInserted;
+  currentOrderId       = null;
+  currentOrderTotal    = 0;
 
-  await sleep(POLL_INTERVAL_MS + POLL_DEVICE_GAP); // dejar que el tick actual termine
+  await sleep(POLL_INTERVAL_MS + POLL_DEVICE_GAP);
 
-  
   try { await nv200?.disable(); } catch (_) {}
   try { await scs?.disable();   } catch (_) {}
 
   // Devolver lo insertado si hay cambio pendiente
-  if (amountInserted > 0 && scs?.isReady) {
+  if (refundAmount > 0 && scs?.isReady) {
     try {
-      await scs.payoutAmount(amountInserted);
+      await scs.payoutAmount(refundAmount);
     } catch (e: any) {
       console.error('[SSP] Error devolviendo monto cancelado:', e.message);
     }
@@ -359,14 +424,12 @@ export async function cancelPaymentSession(): Promise<void> {
 
   broadcast({
     event:    'PAYMENT_CANCELLED',
-    refunded: amountInserted,
+    refunded: refundAmount,
   });
-    console.log(`[SSP] Sesión cancelada. Devuelto: $${(amountInserted / 100).toFixed(2)}`);
+  console.log(`[SSP] Sesión cancelada. Devuelto: $${(refundAmount / 100).toFixed(2)}`);
 
-  currentOrderId    = null;
-  currentOrderTotal = 0;
-  amountInserted    = 0;
-  paymentSessionActive = false;
+  amountInserted      = 0;
+  lastValueAddedTotal = 0;
 }
 
 // ── Verificar si el pago está completo ───────────────────────────────────────
@@ -377,9 +440,11 @@ async function checkPaymentComplete(): Promise<void> {
 
   const change = amountInserted - currentOrderTotal;
 
-  // Deshabilitar aceptación inmediatamente para no recibir más dinero
+  // Deshabilitar aceptación inmediatamente
   try { await nv200?.disable(); } catch (_) {}
   try { await scs?.disable();   } catch (_) {}
+
+  paymentSessionActive = false;
 
   broadcast({
     event:     'PAYMENT_COMPLETE',
@@ -403,10 +468,10 @@ async function checkPaymentComplete(): Promise<void> {
     }
   }
 
-  currentOrderId    = null;
-  currentOrderTotal = 0;
-  amountInserted    = 0;
-  paymentSessionActive = false;
+  currentOrderId      = null;
+  currentOrderTotal   = 0;
+  amountInserted      = 0;
+  lastValueAddedTotal = 0;
 }
 
 // ── Cierre limpio del servidor ────────────────────────────────────────────────
