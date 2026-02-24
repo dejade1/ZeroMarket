@@ -403,18 +403,19 @@ export async function startPaymentSession(
 // ── Cancelar sesión de pago ───────────────────────────────────────────────────
 
 export async function cancelPaymentSession(): Promise<void> {
-  paymentSessionActive = false;
+  scs?.stopPolling();                          // 1 ← PRIMERO
+
+  paymentSessionActive = false;                // 2
   const refundAmount   = amountInserted;
   currentOrderId       = null;
   currentOrderTotal    = 0;
 
-  await sleep(POLL_INTERVAL_MS + POLL_DEVICE_GAP);
+  await sleep(POLL_INTERVAL_MS + POLL_DEVICE_GAP); // 3
 
-  try { await nv200?.disable(); } catch (_) {}
-  try { await scs?.disable();   } catch (_) {}
+  try { await nv200?.disable(); } catch (_) {} // 4
+  try { await scs?.disable();   } catch (_) {} // 5
 
-  // Devolver lo insertado si hay cambio pendiente
-  if (refundAmount > 0 && scs?.isReady) {
+  if (refundAmount > 0 && scs?.isReady) {      // 6
     try {
       await scs.payoutAmount(refundAmount);
     } catch (e: any) {
@@ -422,15 +423,19 @@ export async function cancelPaymentSession(): Promise<void> {
     }
   }
 
-  broadcast({
+  broadcast({                                  // 7
     event:    'PAYMENT_CANCELLED',
     refunded: refundAmount,
   });
   console.log(`[SSP] Sesión cancelada. Devuelto: $${(refundAmount / 100).toFixed(2)}`);
 
-  amountInserted      = 0;
+  amountInserted      = 0;                     // 8
   lastValueAddedTotal = 0;
+
+  scs?.startPolling();                         // 9 ← ÚLTIMO
 }
+
+
 
 // ── Verificar si el pago está completo ───────────────────────────────────────
 

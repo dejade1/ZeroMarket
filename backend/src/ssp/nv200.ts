@@ -365,7 +365,7 @@ async poll(): Promise<void> {
         }
       }
     }
-
+    }
     // EVENT_ACK (0x57): confirmar al dispositivo que procesamos los eventos
     // Solo si hubo eventos reales — evita ACKs innecesarios en idle
    
