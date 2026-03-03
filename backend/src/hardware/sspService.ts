@@ -269,7 +269,6 @@ export class SSPService {
   await this.nv200.setupRequest();
   const nv200KeyOk = await this.nv200.negotiateKeys();
   if (nv200KeyOk) {
-    await this.nv200.setDenominationRoute(100,  country, 0);
     await this.nv200.setDenominationRoute(500,  country, 0);
     await this.nv200.setDenominationRoute(1000, country, 0);
     await this.nv200.enablePayoutDevice();
@@ -279,16 +278,7 @@ export class SSPService {
   console.log('[NV200] Listo');
 
     
-    // Rutas de billetes → payout (reciclar para dar vueltos)
-    for (const cents of [1000, 500]) {        // $10, $5
-      await this.nv200.setDenominationRoute(cents, country, 0); // cifrado
-    }
-    await this.nv200.setInhibits(0xff, 0xff);
-    await this.nv200.enablePayoutDevice();    // cifrado
-    await this.nv200.enable();
-
-
-   // ── SCS ────────────────────────────────────────────────────────────────
+     // ── SCS ────────────────────────────────────────────────────────────────
   console.log('[SCS] Iniciando...');
   await this.scs.setProtocol(6);
   await this.scs.setupRequest();
@@ -333,16 +323,17 @@ private currentSession: {
 } | null = null;
 
 async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
-  if (!this.hardwareReady) {
-    throw new Error('Hardware SSP no inicializado todavía');
-  }
-  if (this.currentSession?.active) {
-    throw new Error(`Sesión ya activa (${this.currentSession.orderId}), cancela primero`);
-  }
+  if (!this.hardwareReady) throw new Error('Hardware SSP no inicializado todavía');
+  if (this.currentSession?.active) throw new Error(`Sesión ya activa`);
 
   this.currentSession = { orderId, totalCents, inserted: 0, active: true };
+
+  // ✅ AGREGAR: habilitar dispositivos al iniciar la sesión
+  await this.nv200?.setInhibits(0xff, 0xff);
+  await this.nv200?.enable();
+  await this.scs?.enableCoinMech([1, 5, 10, 25, 100], this.country);
+
   console.log(`[SSP] Sesión iniciada: ${orderId} — Total: $${(totalCents / 100).toFixed(2)}`);
-  // No hace falta enable() aquí porque el polling ya los mantiene activos
 }
 
 async cancelPaymentSession(): Promise<void> {
@@ -424,23 +415,40 @@ private getNV200ChannelValue(channel: number): number {
 }
 
   private async handlePoll(device: 'SCS' | 'NV200', driver: SSPDriver): Promise<void> {
-    const { code, data } = await driver.poll();
-    if (code !== 0xf0 || !data.length) return;
-    let i = 0;
-    while (i < data.length) {
-      const evCode = data[i++];
-      const evName = SSP_EVENTS[evCode] ?? `0x${evCode.toString(16).toUpperCase()}`;
-      this.onEvent?.(device, evName, Buffer.alloc(0));
-    }
-  }
+  const { code, data } = await driver.poll();
+  if (code !== 0xf0 || !data.length) return;
+  let i = 0;
+  while (i < data.length) {
+    const evCode = data[i++];
+    const evName = SSP_EVENTS[evCode] ?? `0x${evCode.toString(16).toUpperCase()}`;
 
-  async disconnect(): Promise<void> {
+    // Extraer bytes de datos según el evento
+    let evData = Buffer.alloc(0);
+    if (evCode === 0xee) {             // NOTE_CREDIT: 1 byte (canal)
+      evData = data.slice(i, i + 1); i += 1;
+    } else if (evCode === 0xdf) {      // COIN_CREDIT: 4 bytes valor LE + 3 bytes country
+      evData = data.slice(i, i + 7); i += 7;
+    } else if (evCode === 0xef) {      // READ: 1 byte canal
+      evData = data.slice(i, i + 1); i += 1;
+    }
+    // Otros eventos sin datos extra: no avanzar i
+
+    this.onEvent?.(device, evName, evData);
+    this.handlePaymentEvent(device, evName, evData);  // ← AGREGAR ESTA LÍNEA
+  }
+ }
+async disconnect(): Promise<void> {
     this.stopPolling();
     await this.scs?.disable().catch(() => {});
     await this.nv200?.disable().catch(() => {});
     if (this.port?.isOpen) await new Promise<void>(r => this.port!.close(() => r()));
-    this.port = null; this.scs = null; this.nv200 = null;
+    this.port  = null;
+    this.scs   = null;
+    this.nv200 = null;
+    this.hardwareReady = false;
+    this.currentSession = null;
   }
+
 }
 
 // ─── HELPERS BigInt LE 8 bytes ────────────────────────────────────────────────

@@ -562,9 +562,21 @@ wss.on('connection', (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
 
-      if (msg.type === 'SSP_START_SESSION') {
-        ws.send(JSON.stringify({ type: 'SSP_SESSION_OK' }));
-      }
+     if (msg.type === 'SSP_START_SESSION') {
+  const { orderId, totalCents } = msg;
+  try {
+    await sspService.startPaymentSession(orderId, totalCents);
+    ws.send(JSON.stringify({ type: 'SSP_SESSION_OK', orderId, totalCents }));
+
+    // Reenviar actualizaciones de pago al cliente vía WebSocket
+    sspService.onEvent = (device, event, data) => {
+      const status = sspService.getSessionStatus();
+      ws.send(JSON.stringify({ type: 'SSP_EVENT', device, event, data: data.toString('hex'), session: status }));
+    };
+  } catch (e: any) {
+    ws.send(JSON.stringify({ type: 'SSP_SESSION_ERROR', error: e.message }));
+  }
+}
 
       if (msg.type === 'SSP_PAYOUT') {
         const { cents, country } = msg;
