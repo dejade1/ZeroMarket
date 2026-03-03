@@ -19,6 +19,7 @@
   "dependencies": {
     "@prisma/client": "^5.7.1",
     "@sendinblue/client": "^3.3.1",
+    "async-mutex": "^0.5.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -42,6 +43,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^7.0.4",
+    "@types/serialport": "^8.0.5",
     "@types/ws": "^8.18.1",
     "nodemon": "^3.1.11",
     "prisma": "^5.7.1",
