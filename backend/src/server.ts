@@ -532,10 +532,23 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // ==================== SSP HARDWARE ====================
 
-sspService.onEvent = (device, event, data) => {
-  const msg = JSON.stringify({ type: 'SSP_EVENT', device, event, data: data.toString('hex') });
-  wss.clients.forEach(client => { if (client.readyState === 1) client.send(msg); });
+sspService.onEvent = (device, event, _data) => {
+  const session = sspService.getSessionStatus();
+  const msg = JSON.stringify({
+    event,
+    device,
+    valueInserted: session.inserted   ?? 0,
+    remaining:     Math.max(0, session.remaining ?? 0),
+  });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 };
+
+sspService.onPaymentComplete = (orderId, changeCents) => {
+  const msg = JSON.stringify({ event: 'PAYMENT_COMPLETE', change: changeCents, orderId });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+  console.log(`[SSP] 💰 PAYMENT_COMPLETE enviado — Cambio: $${(changeCents / 100).toFixed(2)}`);
+};
+
 
 async function startSSP(): Promise<void> {
   try {

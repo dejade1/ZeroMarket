@@ -86,7 +86,6 @@ export class SSPDriver {
   async send(cmd: number, params: Buffer = Buffer.alloc(0)): Promise<{ code: number; data: Buffer }> {
     return this.mutex.runExclusive(async () => {
       const pkt = buildPacket(this.address, this.seq, Buffer.from([cmd, ...params]));
-      this.port.flush();
       this.port.write(pkt);
       this.port.drain();
       const raw = await this.readResponse();
@@ -101,7 +100,6 @@ export class SSPDriver {
     return this.mutex.runExclusive(async () => {
       const encPayload = this.crypto.encryptPacket(cmd, params);
       const pkt = buildPacket(this.address, this.seq, encPayload);
-      this.port.flush();
       this.port.write(pkt);
       this.port.drain();
       const raw = await this.readResponse();
@@ -269,6 +267,7 @@ export class SSPService {
   private hardwareReady = false;   // ← AGREGAR
   private country       = 'USD';  // ← AGREGAR
   private isPollingActive = false;  // ← agregar propiedad
+  public onPaymentComplete?: (orderId: string, changeCents: number) => void;
 
   async connect(portPath: string): Promise<{ scsOk: boolean; nv200Ok: boolean }> {
     if (this.port?.isOpen) await this.disconnect();
@@ -350,7 +349,15 @@ private currentSession: {
 
 async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
   if (!this.hardwareReady) throw new Error('Hardware SSP no inicializado todavía');
-  if (this.currentSession?.active) throw new Error(`Sesión ya activa`);
+  
+  if (this.currentSession?.active) {
+    console.log(`[SSP] Cancelando sesión previa: ${this.currentSession.orderId}`);
+    this.stopPolling();
+    await this.nv200?.disable().catch(() => {});
+    await this.scs?.disable().catch(() => {});
+    await delay(100);
+    this.currentSession = null;
+  }
 
   this.currentSession = { orderId, totalCents, inserted: 0, active: true };
   this.stopPolling();
@@ -438,25 +445,23 @@ private handlePaymentEvent(device: 'SCS' | 'NV200', event: string, data: Buffer)
     if (inserted >= totalCents) {
       console.log(`[SSP] ✅ Pago completo: ${orderId}`);
       this.currentSession.active = false;
-      // Deshabilitar para no aceptar más dinero
+      const changeCents = inserted - totalCents;   // ← agregar esto
       this.nv200?.disable().catch(() => {});
       this.scs?.disable().catch(() => {});
+      this.onPaymentComplete?.(orderId, changeCents); // ← agregar esto
     }
   }
 }
 
 private getNV200ChannelValue(channel: number): number {
-  // Mapa de canales NV200: índice = canal (1-based), valor en centavos
-  // Ejemplo para USD: ch1=1, ch2=5, ch3=10, ch4=25, ch5=50, ch6=100, ch7=...
   const channelMap: Record<number, number> = {
-    1: 1,    // $0.01
-    2: 5,    // $0.05
-    3: 10,   // $0.10
-    4: 25,   // $0.25
-    5: 50,   // $0.50
-    6: 100,  // $1.00
-    7: 500,  // $5.00
-    8: 1000, // $10.00
+    1: 100,   // $1.00
+    2: 200,   // $2.00
+    3: 500,   // $5.00
+    4: 1000,  // $10.00  ← tu prueba confirmó esto
+    5: 2000,  // $20.00
+    6: 5000,  // $50.00
+    7: 10000, // $100.00
   };
   return channelMap[channel] ?? 0;
 }

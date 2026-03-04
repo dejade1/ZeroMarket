@@ -23,6 +23,7 @@ export function CashPayment({ total, orderId, onSuccess, onCancel }: CashPayment
     startSSPPayment();
     return () => {
       wsRef.current?.close();
+      fetch(`${API_URL}/payment/cancel`, { method: 'POST' }).catch(() => {});
     };
   }, []);
 
