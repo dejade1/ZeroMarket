@@ -308,16 +308,9 @@ export class SSPService {
   console.log('[SCS] Iniciando...');
   await this.scs.setProtocol(6);
   await this.scs.setupRequest();
-  const scsKeyOk = await this.scs.negotiateKeys();
-  if (scsKeyOk) {
-     await this.scs.configureCoinMech([1, 5, 10, 25, 100], country);
-  } else {
-    await this.scs.setInhibits(0xff, 0xff);
-    
-  }
-
-    await this.scs.disable();
-
+  await this.scs.negotiateKeys();        // solo para payout futuro
+  await this.scs.setInhibits(0xff, 0xff); // ← pre-configurar canales abiertos
+  await this.scs.disable();
   console.log('[SCS] Listo');
 
 
@@ -369,14 +362,9 @@ async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
 
   // SCS: re-negociar claves + enableCoinMech completo
   // El eCOUNT puede desincronizarse después de disable(), re-negociar garantiza estado limpio
-  const scsKeyOk = await this.scs?.negotiateKeys();
-  if (scsKeyOk) {
-    await this.scs?.enableCoinMech([1, 5, 10, 25, 100], this.country); // 0x40×5 + 0x49 + enable()
-  } else {
-    // Fallback sin cifrado
-    await this.scs?.setInhibits(0xff, 0xff);
-    await this.scs?.enable();
-  }
+  await this.scs?.setInhibits(0xff, 0xff);
+  await this.scs?.enable();
+  console.log('[SCS] Coin mech activo');
 
   this.startPolling(500);
   console.log(`[SSP] Sesión iniciada: ${orderId} — Total: $${(totalCents / 100).toFixed(2)}`);
@@ -474,6 +462,13 @@ private getNV200ChannelValue(channel: number): number {
   private async handlePoll(device: 'SCS' | 'NV200', driver: SSPDriver): Promise<void> {
   const { code, data } = await driver.poll();
   if (code !== 0xf0 || !data.length) return;
+
+    // ← TEMPORAL: log de eventos que no sean DISABLED (0xe8)
+  if (data[0] !== 0xe8) {
+    console.log(`[${device}-POLL] raw: ${data.toString('hex')}`);
+  }
+
+  
   let i = 0;
   while (i < data.length) {
     const evCode = data[i++];
