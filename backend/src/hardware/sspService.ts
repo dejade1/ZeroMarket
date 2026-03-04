@@ -430,28 +430,32 @@ private handlePaymentEvent(device: 'SCS' | 'NV200', event: string, data: Buffer)
     amountCents = this.getNV200ChannelValue(channel);
   }
 
-  if (event === 'COIN_CREDIT' && device === 'SCS') {
-    // data[0..3] = value LE, data[4..6] = country
-    amountCents = data.length >= 4 ? data.readUInt32LE(0) : 0;
+  if (event === 'VALUE_ADDED' && device === 'SCS') {
+    amountCents = data.length >= 5 ? data.readUInt32LE(1) : 0;
   }
 
-  if (amountCents > 0) {
-    this.currentSession.inserted += amountCents;
-    const { orderId, totalCents, inserted } = this.currentSession;
-    const remaining = totalCents - inserted;
+  // COIN_CREDIT (0xDF) como fallback por si acaso
+  if (event === 'COIN_CREDIT' && device === 'SCS') {
+      amountCents = data.length >= 4 ? data.readUInt32LE(0) : 0;
+    }
 
-    console.log(`[SSP] +$${(amountCents / 100).toFixed(2)} | Total insertado: $${(inserted / 100).toFixed(2)} | Restante: $${(Math.max(0, remaining) / 100).toFixed(2)}`);
+    if (amountCents > 0) {
+      this.currentSession.inserted += amountCents;
+      const { orderId, totalCents, inserted } = this.currentSession;
+      const remaining = totalCents - inserted;
 
-    if (inserted >= totalCents) {
-      console.log(`[SSP] ✅ Pago completo: ${orderId}`);
-      this.currentSession.active = false;
-      const changeCents = inserted - totalCents;   // ← agregar esto
-      this.nv200?.disable().catch(() => {});
-      this.scs?.disable().catch(() => {});
-      this.onPaymentComplete?.(orderId, changeCents); // ← agregar esto
+      console.log(`[SSP] +$${(amountCents/100).toFixed(2)} | Total insertado: $${(inserted/100).toFixed(2)} | Restante: $${(Math.max(0,remaining)/100).toFixed(2)}`);
+
+      if (inserted >= totalCents) {
+        console.log(`[SSP] ✅ Pago completo: ${orderId}`);
+        this.currentSession.active = false;
+        const changeCents = inserted - totalCents;
+        this.nv200?.disable().catch(() => {});
+        this.scs?.disable().catch(() => {});
+        this.onPaymentComplete?.(orderId, changeCents);
+      }
     }
   }
-}
 
 private getNV200ChannelValue(channel: number): number {
   const channelMap: Record<number, number> = {
@@ -482,13 +486,30 @@ private getNV200ChannelValue(channel: number): number {
     const evName = SSP_EVENTS[evCode] ?? `0x${evCode.toString(16).toUpperCase()}`;
 
     // Extraer bytes de datos según el evento
-    let evData = Buffer.alloc(0);
-    if (evCode === 0xee) {             // NOTE_CREDIT: 1 byte (canal)
+   let evData = Buffer.alloc(0);
+    if (evCode === 0xee) {              // NOTE_CREDIT: 1 byte canal
       evData = data.slice(i, i + 1); i += 1;
-    } else if (evCode === 0xdf) {      // COIN_CREDIT: 4 bytes valor LE + 3 bytes country
+    } else if (evCode === 0xdf) {       // COIN_CREDIT: 4 val + 3 country
       evData = data.slice(i, i + 7); i += 7;
-    } else if (evCode === 0xef) {      // READ: 1 byte canal
+    } else if (evCode === 0xef) {       // READ: 1 byte canal
       evData = data.slice(i, i + 1); i += 1;
+    } else if (evCode === 0xbf) {       // VALUE_ADDED (SCS coin) — multi-country
+      if (i < data.length) {
+        const n = data[i];              // número de items
+        const sz = 1 + n * 7;          // 1(n) + n*(4 val + 3 country)
+        evData = data.slice(i, i + sz);
+        i += sz;
+      }
+    } else if (evCode === 0xda || evCode === 0xd2 ||   // DISPENSING / DISPENSED
+              evCode === 0xd7 || evCode === 0xd8 ||   // FLOATING / FLOATED
+              evCode === 0xb3 || evCode === 0xb4) {   // SMART_EMPTYING / SMART_EMPTIED
+      // Multi-country format igual que VALUE_ADDED
+      if (i < data.length) {
+        const n = data[i];
+        const sz = 1 + n * 7;
+        evData = data.slice(i, i + sz);
+        i += sz;
+      }
     }
     // Otros eventos sin datos extra: no avanzar i
 
