@@ -53,25 +53,34 @@ export class SSPDriver {
     private mutex: Mutex,
   ) {}
 
-  private readResponse(): Promise<Buffer> {
-    return new Promise((resolve) => {
-      const chunks: Buffer[] = [];
-      let timer: ReturnType<typeof setTimeout>;
-      const onData = (chunk: Buffer) => {
-        chunks.push(chunk);
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          this.port.removeListener('data', onData);
-          resolve(Buffer.concat(chunks));
-        }, 80);
-      };
-      this.port.on('data', onData);
-      setTimeout(() => {
-        this.port.removeListener('data', onData);
-        resolve(Buffer.alloc(0));
-      }, 1000);
-    });
-  }
+ private readResponse(): Promise<Buffer> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let idleTimer: ReturnType<typeof setTimeout>;
+    let hardTimer: ReturnType<typeof setTimeout>;
+    let resolved = false;
+
+    const done = (buf: Buffer) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(idleTimer);
+      clearTimeout(hardTimer);
+      this.port.removeListener('data', onData);
+      resolve(buf);
+    };
+
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk);
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => done(Buffer.concat(chunks)), 80);
+    };
+
+    this.port.on('data', onData);
+
+    // Timeout duro — si no hay ninguna respuesta en 800ms
+    hardTimer = setTimeout(() => done(Buffer.alloc(0)), 800);
+  });
+}
 
   // ── Envío sin cifrado ──────────────────────────────────────────────────────
   async send(cmd: number, params: Buffer = Buffer.alloc(0)): Promise<{ code: number; data: Buffer }> {
@@ -156,6 +165,23 @@ export class SSPDriver {
     this.crypto.finalizeKey(slaveInterKey, hostRnd, modulus);
     return true;
   }
+
+// En SSPDriver — configurar monedas SIN habilitar
+async configureCoinMech(denomsCents: number[], country: string): Promise<boolean> {
+  for (const cents of denomsCents) {
+    const p = Buffer.alloc(6);
+    p[0] = 0x01;
+    p.writeUInt16LE(cents, 1);
+    p.write(country.slice(0, 3).padEnd(3), 3, 'ascii');
+    await this.sendEncrypted(0x40, p);
+    await delay(20);
+  }
+  await this.sendEncrypted(0x49, Buffer.from([0x01]));
+  await delay(20);
+  return true;  // ← sin enable()
+}
+
+
 
   // ── COMANDOS SIN CIFRADO ──────────────────────────────────────────────────
   async setProtocol(v = 8)    { return (await this.send(0x06, Buffer.from([v]))).code === 0xf0; }
@@ -242,6 +268,7 @@ export class SSPService {
   public onEvent?: (device: 'SCS' | 'NV200', event: string, data: Buffer) => void;
   private hardwareReady = false;   // ← AGREGAR
   private country       = 'USD';  // ← AGREGAR
+  private isPollingActive = false;  // ← agregar propiedad
 
   async connect(portPath: string): Promise<{ scsOk: boolean; nv200Ok: boolean }> {
     if (this.port?.isOpen) await this.disconnect();
@@ -274,7 +301,7 @@ export class SSPService {
     await this.nv200.enablePayoutDevice();
   }
   await this.nv200.setInhibits(0xff, 0xff);
-  await this.nv200.enable();   // ← enable para que el polling funcione
+  await this.nv200.disable();   // ← enable para que el polling funcione
   console.log('[NV200] Listo');
 
     
@@ -284,11 +311,14 @@ export class SSPService {
   await this.scs.setupRequest();
   const scsKeyOk = await this.scs.negotiateKeys();
   if (scsKeyOk) {
-    await this.scs.enableCoinMech([1, 5, 10, 25, 100], country);
+     await this.scs.configureCoinMech([1, 5, 10, 25, 100], country);
   } else {
     await this.scs.setInhibits(0xff, 0xff);
-    await this.scs.enable();
+    
   }
+
+    await this.scs.disable();
+
   console.log('[SCS] Listo');
 
 
@@ -308,10 +338,6 @@ export class SSPService {
     if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
   }
 
-  private async pollBoth(): Promise<void> {
-    if (this.scs)   await this.handlePoll('SCS',   this.scs);
-    if (this.nv200) await this.handlePoll('NV200', this.nv200);
-  }
 
   // ─── SESIÓN DE PAGO ───────────────────────────────────────────────────────────
 
@@ -327,11 +353,19 @@ async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
   if (this.currentSession?.active) throw new Error(`Sesión ya activa`);
 
   this.currentSession = { orderId, totalCents, inserted: 0, active: true };
+  this.stopPolling();
+
 
   // ✅ AGREGAR: habilitar dispositivos al iniciar la sesión
   await this.nv200?.setInhibits(0xff, 0xff);
   await this.nv200?.enable();
-  await this.scs?.enableCoinMech([1, 5, 10, 25, 100], this.country);
+  await delay(50);
+
+  await this.scs?.setInhibits(0xff, 0xff);
+  await this.scs?.enable();
+
+  
+  this.startPolling(500);  // 500ms en vez de 200ms
 
   console.log(`[SSP] Sesión iniciada: ${orderId} — Total: $${(totalCents / 100).toFixed(2)}`);
 }
@@ -341,10 +375,11 @@ async cancelPaymentSession(): Promise<void> {
 
   console.log(`[SSP] Sesión cancelada: ${this.currentSession.orderId}`);
   this.currentSession = null;
-
+  this.stopPolling();
   // Deshabilitar aceptación de dinero
   await this.nv200?.disable();
   await this.scs?.disable();
+  this.startPolling(500); 
 }
 
 getSessionStatus(): {
@@ -364,6 +399,18 @@ getSessionStatus(): {
     remaining:  Math.max(0, totalCents - inserted),
   };
 }
+
+private async pollBoth(): Promise<void> {
+  if (this.isPollingActive) return;  // ← evitar overlap
+  this.isPollingActive = true;
+  try {
+    if (this.scs)   await this.handlePoll('SCS',   this.scs);
+    if (this.nv200) await this.handlePoll('NV200', this.nv200);
+  } finally {
+    this.isPollingActive = false;
+  }
+}
+
 
 private handlePaymentEvent(device: 'SCS' | 'NV200', event: string, data: Buffer): void {
   if (!this.currentSession?.active) return;
