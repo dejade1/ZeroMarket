@@ -179,7 +179,11 @@ async configureCoinMech(denomsCents: number[], country: string): Promise<boolean
   return true;  // ← sin enable()
 }
 
-
+async reactivateCoinMech(): Promise<boolean> {
+  await this.send(0x49, Buffer.from([0x01]));
+  await delay(50);
+  return this.enable();
+}
 
   // ── COMANDOS SIN CIFRADO ──────────────────────────────────────────────────
   async setProtocol(v = 8)    { return (await this.send(0x06, Buffer.from([v]))).code === 0xf0; }
@@ -309,6 +313,9 @@ export class SSPService {
   await this.scs.setProtocol(6);
   await this.scs.setupRequest();
   await this.scs.negotiateKeys();        // solo para payout futuro
+  const SCS_DENOMS = [1, 5, 10, 25, 100]; // centavos USD
+await this.scs.configureCoinMech(SCS_DENOMS, country); // ya existe el método
+// NO llamar enable() aquí — dejar en STANDBY
   await this.scs.setInhibits(0xff, 0xff); // ← pre-configurar canales abiertos
   await this.scs.disable();
   console.log('[SCS] Listo');
@@ -362,8 +369,8 @@ async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
 
   // SCS: re-negociar claves + enableCoinMech completo
   // El eCOUNT puede desincronizarse después de disable(), re-negociar garantiza estado limpio
-  await this.scs?.setInhibits(0xff, 0xff);
-  await this.scs?.enable();
+   await this.scs?.reactivateCoinMech(); // 0x49 + enable
+
   console.log('[SCS] Coin mech activo');
 
   this.startPolling(500);

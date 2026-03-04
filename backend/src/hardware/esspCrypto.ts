@@ -63,21 +63,22 @@ export class eSSPCrypto {
 
   // ── Paso 1: preparar valores para Set Generator / Set Modulus / Key Exchange
   prepareKeyExchange(): {
-    generator:    bigint;
-    modulus:      bigint;
-    hostInterKey: bigint;
-    hostRnd:      bigint;
-  } {
-    const generator = 13n;
-    const modulus   = 2147483647n; // Primo de Mersenne M31
+      generator: bigint;
+      modulus: bigint;
+      hostInterKey: bigint;
+      hostRnd: bigint;
+    } {
+      // Valores del spec ITL (según tester.py)
+      const generator = 982451653n;           // _GENERATOR [cite:58]
+      const modulus   = 4611686018427387847n; // _MODULUS   [cite:58]
 
-    // hostRnd debe ser < modulus
-    const rndBytes  = crypto.randomBytes(4);
-    const hostRnd   = BigInt(rndBytes.readUInt32BE(0)) % (modulus - 2n) + 1n;
-    const hostInterKey = modpow(generator, hostRnd, modulus);
+      // hostRnd debe ser < modulus
+      const rndBytes = crypto.randomBytes(8);
+      const hostRnd  = bufferLE8ToBigInt(rndBytes) % (modulus - 2n) + 1n;
 
-    return { generator, modulus, hostInterKey, hostRnd };
-  }
+      const hostInterKey = modpow(generator, hostRnd, modulus);
+      return { generator, modulus, hostInterKey, hostRnd };
+    }
 
   // ── Paso 2: recibir slaveInterKey y calcular clave final AES-128
   finalizeKey(slaveInterKey: bigint, hostRnd: bigint, modulus: bigint): void {
