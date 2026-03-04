@@ -20,12 +20,22 @@ export function CashPayment({ total, orderId, onSuccess, onCancel }: CashPayment
   const wsRef                       = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    startSSPPayment();
+  let sessionStarted = false;
+
+    const timer = setTimeout(() => {
+        sessionStarted = true;
+        startSSPPayment();
+      }, 100);
+      
     return () => {
-      wsRef.current?.close();
-      fetch(`${API_URL}/payment/cancel`, { method: 'POST' }).catch(() => {});
-    };
-  }, []);
+      clearTimeout(timer); // StrictMode cleanup cancela el timer antes de que dispare
+        wsRef.current?.close();
+        if (sessionStarted) {
+          // Solo cancela si la sesión realmente arrancó (desmontaje real)
+          fetch(`${API_URL}/payment/cancel`, { method: 'POST' }).catch(() => {});
+        }
+      };
+    }, []);
 
   const startSSPPayment = async () => {
     // Conectar WebSocket para eventos en tiempo real del hardware

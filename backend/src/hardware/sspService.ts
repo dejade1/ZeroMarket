@@ -349,31 +349,36 @@ private currentSession: {
 
 async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
   if (!this.hardwareReady) throw new Error('Hardware SSP no inicializado todavía');
-  
+
   if (this.currentSession?.active) {
     console.log(`[SSP] Cancelando sesión previa: ${this.currentSession.orderId}`);
     this.stopPolling();
     await this.nv200?.disable().catch(() => {});
     await this.scs?.disable().catch(() => {});
-    await delay(100);
+    await delay(200); // ← más tiempo para que el hardware se estabilice
     this.currentSession = null;
   }
 
   this.currentSession = { orderId, totalCents, inserted: 0, active: true };
   this.stopPolling();
 
-
-  // ✅ AGREGAR: habilitar dispositivos al iniciar la sesión
+  // NV200: enable directo — rutas configuradas en init persisten
   await this.nv200?.setInhibits(0xff, 0xff);
   await this.nv200?.enable();
   await delay(50);
 
-  await this.scs?.setInhibits(0xff, 0xff);
-  await this.scs?.enable();
+  // SCS: re-negociar claves + enableCoinMech completo
+  // El eCOUNT puede desincronizarse después de disable(), re-negociar garantiza estado limpio
+  const scsKeyOk = await this.scs?.negotiateKeys();
+  if (scsKeyOk) {
+    await this.scs?.enableCoinMech([1, 5, 10, 25, 100], this.country); // 0x40×5 + 0x49 + enable()
+  } else {
+    // Fallback sin cifrado
+    await this.scs?.setInhibits(0xff, 0xff);
+    await this.scs?.enable();
+  }
 
-  
-  this.startPolling(500);  // 500ms en vez de 200ms
-
+  this.startPolling(500);
   console.log(`[SSP] Sesión iniciada: ${orderId} — Total: $${(totalCents / 100).toFixed(2)}`);
 }
 
