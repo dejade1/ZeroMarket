@@ -258,6 +258,7 @@ export class SSPService {
   public onEvent?: (device: 'SCS' | 'NV200', event: string, data: Buffer) => void;
   private hardwareReady = false;
   private country       = 'USD';
+  private scsCountry       = 'ECD';
   private isPollingActive = false;
   public onPaymentComplete?: (orderId: string, changeCents: number) => void;
 
@@ -303,7 +304,7 @@ export class SSPService {
     return { notesCents, coinsCents: remaining };
   }
 
-  async initDevices(country = 'USD'): Promise<void> {
+  async initDevices(country = 'usd'): Promise<void> {
     this.country = country;
     if (!this.scs || !this.nv200) throw new Error('No conectado');
 
@@ -341,7 +342,7 @@ console.log('[NV200] Listo');
     await this.scs.setupRequest();
     await this.scs.negotiateKeys();
     const SCS_DENOMS = [1, 5, 10, 25, 100];
-    await this.scs.configureCoinMech(SCS_DENOMS, country);
+    await this.scs.configureCoinMech(SCS_DENOMS, 'ECD');
     await this.scs.setInhibits(0xff, 0xff);
     await this.scs.setInhibits(0x00, 0x00);
     console.log('[SCS] Listo');
@@ -484,6 +485,9 @@ console.log('[NV200] Listo');
     }
     if (event === 'VALUE_ADDED' && device === 'SCS') {
       amountCents = data.length >= 5 ? data.readUInt32LE(1) : 0;
+      if (data.length >= 8) {
+      this.scsCountry = data.slice(5, 8).toString('ascii'); // "ECD"
+      }
     }
     if (event === 'COIN_CREDIT' && device === 'SCS') {
       amountCents = data.length >= 4 ? data.readUInt32LE(0) : 0;
@@ -596,7 +600,7 @@ console.log('[NV200] Listo');
         console.log(`[SCS] ⏳ Reintentando payout (intento ${attempts + 1}/4)...`);
         await delay(600);
       }
-      result = await this.scs!.payoutAmount(coinsCents, this.country);
+      result = await this.scs!.payoutAmount(coinsCents, this.scsCountry ?? this.country);
       console.log(`[SCS] payoutAmount → code: 0x${result.code.toString(16)} errCode=${result.data?.[0] ?? 0}`);
       attempts++;
     } while (result.code === 0xf5 && (result.data?.[0] ?? 0) === 3 && attempts < 4);
