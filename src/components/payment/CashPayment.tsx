@@ -47,10 +47,11 @@ export function CashPayment({ total, orderId, onSuccess, onCancel }: CashPayment
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       switch (data.event) {
-        case 'NOTE_CREDIT':
-        case 'COIN_CREDIT':
+        case 'PAYMENT_UPDATE':
           setReceivedAmount(data.valueInserted / 100);
-          setMessage(`Recibido: $${(data.valueInserted / 100).toFixed(2)} — Faltan: $${(data.remaining / 100).toFixed(2)}`);
+          setMessage(
+            `Recibido: $${(data.valueInserted / 100).toFixed(2)} — Faltan: $${(Math.max(0, data.remaining) / 100).toFixed(2)}`
+          );
           break;
 
         case 'PAYMENT_COMPLETE':

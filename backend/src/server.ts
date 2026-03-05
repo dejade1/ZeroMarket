@@ -550,6 +550,20 @@ sspService.onPaymentComplete = (orderId, changeCents) => {
 };
 
 
+sspService.onPaymentUpdate = (orderId, inserted, remaining) => {
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({
+        event: 'PAYMENT_UPDATE',
+        orderId,
+        valueInserted: inserted,
+        remaining,
+      }));
+    }
+  });
+};
+
+
 async function startSSP(): Promise<void> {
   try {
     const { scsOk, nv200Ok } = await sspService.connect(SSP_PORT);

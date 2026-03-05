@@ -261,6 +261,7 @@ export class SSPService {
   private scsCountry       = 'ECD';
   private isPollingActive = false;
   public onPaymentComplete?: (orderId: string, changeCents: number) => void;
+  onPaymentUpdate?: (orderId: string, inserted: number, remaining: number) => void;
 
   private dispensingState: 'idle' | 'waiting' | 'done' = 'idle';
   private dispensingOrderId = '';
@@ -493,12 +494,15 @@ console.log('[NV200] Listo');
       amountCents = data.length >= 4 ? data.readUInt32LE(0) : 0;
     }
 
-    if (amountCents > 0) {
+   if (amountCents > 0) {
       if (!this.currentSession?.active) return;
 
       this.currentSession.inserted += amountCents;
       const { orderId, totalCents, inserted } = this.currentSession;
       const remaining = totalCents - inserted;
+
+      // ✅ AGREGAR AQUÍ — las dos líneas vacías que tienes
+     this.onPaymentUpdate?.(orderId, inserted, Math.max(0, remaining));
 
       console.log(`[SSP] +$${(amountCents / 100).toFixed(2)} | Total insertado: $${(
         inserted / 100).toFixed(2)} | Restante: $${(Math.max(0, remaining) / 100).toFixed(2)}`);
