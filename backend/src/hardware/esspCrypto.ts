@@ -49,8 +49,8 @@ export class eSSPCrypto {
 
   // Lower 64-bit fija del fabricante (ITL default: 0x0123456701234567)
   // DEBE coincidir con lo que el dispositivo espera
-  private readonly fixedKeyLow = Buffer.from([
-    0x01, 0x23, 0x45, 0x67, 0x01, 0x23, 0x45, 0x67,
+ private readonly fixedKeyLow = Buffer.from([
+    0x67, 0x45, 0x23, 0x01, 0x67, 0x45, 0x23, 0x01,
   ]);
 
   get isNegotiated(): boolean { return this.key !== null; }
@@ -90,7 +90,7 @@ export class eSSPCrypto {
     // AES-128 key = fixedLow(8 bytes) + negotiatedHigh(8 bytes)
     this.key = Buffer.concat([this.fixedKeyLow, keyHigh]);
     this.encryptCount = 0;
-    this.decryptCount = 0;
+    this.decryptCount = 1;
 
     console.log(`[eSSP] Clave negociada: ${this.key.toString('hex')}`);
     console.log(`[eSSP] sharedSecret: ${sharedSecret}`);

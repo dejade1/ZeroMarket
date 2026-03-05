@@ -2,7 +2,6 @@ import { SerialPort } from 'serialport';
 import { Mutex } from 'async-mutex';
 import { eSSPCrypto } from './esspCrypto';
 
-
 // ─── CRC + PACKET ─────────────────────────────────────────────────────────────
 function crc16(data: Buffer): number {
   let crc = 0xffff;
@@ -42,7 +41,6 @@ function parseResponse(raw: Buffer): { code: number; data: Buffer } {
   const data = Buffer.from(destuffed.slice(2, 2 + length));
   return { code: data[0] ?? 0, data: data.slice(1) };
 }
-
 
 // ─── DRIVER ───────────────────────────────────────────────────────────────────
 export class SSPDriver {
@@ -97,12 +95,6 @@ export class SSPDriver {
     if (!this.crypto.isNegotiated) throw new Error('eSSP: clave no negociada');
     return this.mutex.runExclusive(async () => {
       const encPayload = this.crypto.encryptPacket(cmd, params);
-
-        
-            console.log(`[eSSP-DBG] cmd=0x${cmd.toString(16)} encPayload[0]=0x${encPayload[0]?.toString(16)} len=${
-              encPayload.length} hex=${encPayload.slice(0,12).toString('hex')}`);
-
-      
       const pkt = buildPacket(this.address, this.seq, encPayload);
       this.port.write(pkt);
       this.port.drain();
@@ -112,11 +104,15 @@ export class SSPDriver {
       const { code, data } = parseResponse(raw);
       if (!data.length) return { code, data };
 
-      if (data[0] === 0x7e) {
-        const decrypted = this.crypto.decryptResponse(data);
+      // Respuesta cifrada — parseResponse pone 0x7E como code
+      if (code === 0x7e) {
+        const encryptedPayload = Buffer.concat([Buffer.from([0x7e]), data]);
+        const decrypted = this.crypto.decryptResponse(encryptedPayload);
         if (!decrypted) return { code: 0xfe, data: Buffer.alloc(0) };
         return { code: decrypted[0], data: decrypted.slice(1) };
       }
+
+      // Respuesta plana (no debería ocurrir en comandos cifrados)
       return { code: data[0], data: data.slice(1) };
     });
   }
@@ -141,43 +137,21 @@ export class SSPDriver {
 
     const { generator, modulus, hostInterKey, hostRnd } = this.crypto.prepareKeyExchange();
 
-    const genBuf = bigIntTo8ByteLE(generator);
-    const { code: c1 } = await this.send(0x4a, genBuf);
+    const { code: c1 } = await this.send(0x4a, bigIntTo8ByteLE(generator));
     if (c1 !== 0xf0) return false;
     await delay(50);
 
-    const modBuf = bigIntTo8ByteLE(modulus);
-    const { code: c2 } = await this.send(0x4b, modBuf);
+    const { code: c2 } = await this.send(0x4b, bigIntTo8ByteLE(modulus));
     if (c2 !== 0xf0) return false;
     await delay(50);
 
-    const hiBuf = bigIntTo8ByteLE(hostInterKey);
-    const { code: c3, data } = await this.send(0x4c, hiBuf);
+    // 0x4C se envía sin cifrar — el dispositivo responde cifrado con eCOUNT=0
+    const { code: c3, data } = await this.send(0x4c, bigIntTo8ByteLE(hostInterKey));
     if (c3 !== 0xf0 || data.length < 8) return false;
 
     const slaveInterKey = bufferTo8ByteBigIntLE(data.slice(0, 8));
     this.crypto.finalizeKey(slaveInterKey, hostRnd, modulus);
     return true;
-  }
-
-  async configureCoinMech(denomsCents: number[], country: string): Promise<boolean> {
-    for (const cents of denomsCents) {
-      const p = Buffer.alloc(6);
-      p[0] = 0x01;
-      p.writeUInt16LE(cents, 1);
-      p.write(country.slice(0, 3).padEnd(3), 3, 'ascii');
-      await this.sendEncrypted(0x40, p);
-      await delay(20);
-    }
-    await this.sendEncrypted(0x49, Buffer.from([0x01]));
-    await delay(20);
-    return true;
-  }
-
-  async reactivateCoinMech(): Promise<boolean> {
-    await this.send(0x49, Buffer.from([0x01]));
-    await delay(50);
-    return this.enable();
   }
 
   async setProtocol(v = 8)    { return (await this.send(0x06, Buffer.from([v]))).code === 0xf0; }
@@ -239,6 +213,20 @@ export class SSPDriver {
     return code === 0xf0;
   }
 
+  async configureCoinMech(denomsCents: number[], country: string): Promise<boolean> {
+    for (const cents of denomsCents) {
+      const p = Buffer.alloc(6);
+      p[0] = 0x01;
+      p.writeUInt16LE(cents, 1);
+      p.write(country.slice(0, 3).padEnd(3), 3, 'ascii');
+      await this.sendEncrypted(0x40, p);
+      await delay(20);
+    }
+    await this.sendEncrypted(0x49, Buffer.from([0x01]));
+    await delay(20);
+    return true;
+  }
+
   async enableCoinMech(denomsCents: number[], country: string): Promise<boolean> {
     for (const cents of denomsCents) {
       const p = Buffer.alloc(6);
@@ -252,8 +240,13 @@ export class SSPDriver {
     await delay(20);
     return this.enable();
   }
-}
 
+  async reactivateCoinMech(): Promise<boolean> {
+    await this.send(0x49, Buffer.from([0x01]));
+    await delay(50);
+    return this.enable();
+  }
+}
 
 // ─── SERVICIO PRINCIPAL ───────────────────────────────────────────────────────
 export class SSPService {
@@ -268,14 +261,17 @@ export class SSPService {
   private isPollingActive = false;
   public onPaymentComplete?: (orderId: string, changeCents: number) => void;
 
-  // ── Estado del payout de vuelto ──────────────────────────────────────────
-  // Mientras dispensingState !== 'idle', el polling detecta DISPENSED/errores
   private dispensingState: 'idle' | 'waiting' | 'done' = 'idle';
   private dispensingOrderId = '';
   private dispensingChangeCents = 0;
-
   private paymentTriggered = false;
 
+  private currentSession: {
+    orderId:    string;
+    totalCents: number;
+    inserted:   number;
+    active:     boolean;
+  } | null = null;
 
   async connect(portPath: string): Promise<{ scsOk: boolean; nv200Ok: boolean }> {
     if (this.port?.isOpen) await this.disconnect();
@@ -291,23 +287,53 @@ export class SSPService {
     return { scsOk, nv200Ok };
   }
 
+  private splitChange(changeCents: number): { notesCents: number; coinsCents: number } {
+    // Solo $10 y $5 pueden darse como vuelto (están ruteados al reciclador)
+    const noteDenoms = [1000, 500];
+    let notesCents = 0;
+    let remaining = changeCents;
+
+    for (const denom of noteDenoms) {
+      const count = Math.floor(remaining / denom);
+      notesCents += count * denom;
+      remaining  -= count * denom;
+    }
+
+    // Lo restante va al SCS en monedas
+    return { notesCents, coinsCents: remaining };
+  }
+
   async initDevices(country = 'USD'): Promise<void> {
     this.country = country;
     if (!this.scs || !this.nv200) throw new Error('No conectado');
 
     // ── NV200 ──────────────────────────────────────────────────────────────
-    console.log('[NV200] Iniciando...');
-    await this.nv200.setProtocol(8);
-    await this.nv200.setupRequest();
-    const nv200KeyOk = await this.nv200.negotiateKeys();
-    if (nv200KeyOk) {
-      await this.nv200.setDenominationRoute(500,  country, 0);
-      await this.nv200.setDenominationRoute(1000, country, 0);
-      await this.nv200.enablePayoutDevice();
-    }
-    await this.nv200.setInhibits(0xff, 0xff);
-    await this.nv200.disable();
-    console.log('[NV200] Listo');
+   console.log('[NV200] Iniciando...');
+await this.nv200.setProtocol(8);
+await this.nv200.setupRequest();
+const nv200KeyOk = await this.nv200.negotiateKeys();
+if (nv200KeyOk) {
+  // ── Rutas de denominaciones ──────────────────────────────────────────
+  // route=0 → payout/reciclador | route=1 → cashbox directo
+
+  const r1  = await this.nv200.setDenominationRoute(100,  country, 1); // $1  → cashbox
+  const r2  = await this.nv200.setDenominationRoute(200,  country, 1); // $2  → cashbox
+  const r5  = await this.nv200.setDenominationRoute(500,  country, 0); // $5  → payout ♻️
+  const r10 = await this.nv200.setDenominationRoute(1000, country, 0); // $10 → payout ♻️
+  const r20 = await this.nv200.setDenominationRoute(2000, country, 1); // $20 → cashbox
+
+  const r4 = await this.nv200.enablePayoutDevice();
+
+  console.log(`[NV200] Rutas: $1=${r1} $2=${r2} $5=${r5} $10=${r10} $20=${r20} payoutDevice=${r4}`);
+
+  // ── Inhibir $50 y $100 — no aceptar ─────────────────────────────────
+  // Canales 6 y 7 típicamente corresponden a $50 y $100 en dataset USD
+  // Los inhibits se aplican por canal en setInhibits — canales 1-5 habilitados, 6-7 inhibidos
+  // 0b00011111 = 0x1F → canales 1-5 ON, 6-8 OFF
+  await this.nv200.setInhibits(0x1f, 0x00);
+}
+await this.nv200.disable();
+console.log('[NV200] Listo');
 
     // ── SCS ────────────────────────────────────────────────────────────────
     console.log('[SCS] Iniciando...');
@@ -317,7 +343,7 @@ export class SSPService {
     const SCS_DENOMS = [1, 5, 10, 25, 100];
     await this.scs.configureCoinMech(SCS_DENOMS, country);
     await this.scs.setInhibits(0xff, 0xff);
-    await this.scs.disable();
+    await this.scs.setInhibits(0x00, 0x00);
     console.log('[SCS] Listo');
 
     this.hardwareReady = true;
@@ -333,23 +359,12 @@ export class SSPService {
     if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
   }
 
-
-  // ─── SESIÓN DE PAGO ───────────────────────────────────────────────────────
-
-  private currentSession: {
-    orderId:    string;
-    totalCents: number;
-    inserted:   number;
-    active:     boolean;
-  } | null = null;
-
   async startPaymentSession(orderId: string, totalCents: number): Promise<void> {
     if (!this.hardwareReady) throw new Error('Hardware SSP no inicializado todavía');
 
     this.paymentTriggered = false;
-    
-    if (this.currentSession?.active) {        
 
+    if (this.currentSession?.active) {
       console.log(`[SSP] Cancelando sesión previa: ${this.currentSession.orderId}`);
       this.stopPolling();
       await this.nv200?.disable().catch(() => {});
@@ -365,8 +380,8 @@ export class SSPService {
     await this.nv200?.enable();
     await delay(50);
 
-    await this.scs?.reactivateCoinMech();
-    console.log('[SCS] Coin mech activo');
+    await this.scs?.setInhibits(0xff, 0xff);
+    await this.scs?.enable();
 
     this.startPolling(500);
     console.log(`[SSP] Sesión iniciada: ${orderId} — Total: $${(totalCents / 100).toFixed(2)}`);
@@ -374,12 +389,11 @@ export class SSPService {
 
   async cancelPaymentSession(): Promise<void> {
     if (!this.currentSession) return;
-
     console.log(`[SSP] Sesión cancelada: ${this.currentSession.orderId}`);
     this.currentSession = null;
     this.stopPolling();
     await this.nv200?.disable();
-    await this.scs?.disable();
+    await this.scs?.setInhibits(0x00, 0x00);
     this.startPolling(500);
   }
 
@@ -394,9 +408,6 @@ export class SSPService {
       remaining: Math.max(0, totalCents - inserted),
     };
   }
-
-
-  // ─── POLLING ──────────────────────────────────────────────────────────────
 
   private async pollBoth(): Promise<void> {
     if (this.isPollingActive) return;
@@ -436,13 +447,7 @@ export class SSPService {
           evData = data.slice(i, i + sz);
           i += sz;
         }
-      } else if (
-        evCode === 0xda || evCode === 0xd2 ||
-        evCode === 0xd7 || evCode === 0xd8 ||
-        evCode === 0xb3 || evCode === 0xb4 ||
-        evCode === 0xdc || evCode === 0xdd ||  // INCOMPLETE_PAYOUT / INCOMPLETE_FLOAT
-        evCode === 0xb1                         // ERROR_DURING_PAYOUT
-      ) {
+      } else if ([0xda, 0xd2, 0xd7, 0xd8, 0xb3, 0xb4, 0xdc, 0xdd, 0xb1].includes(evCode)) {
         if (i < data.length) {
           const n = data[i];
           const sz = 1 + n * 7;
@@ -454,15 +459,13 @@ export class SSPService {
       this.onEvent?.(device, evName, evData);
       this.handlePaymentEvent(device, evName, evData);
 
-      // ── Detectar confirmación de DISPENSED desde el polling normal ────────
+      // Detectar DISPENSED y errores de payout
       if (device === 'SCS' && this.dispensingState === 'waiting') {
         if (evCode === 0xd2) {
-          // DISPENSED — vuelto entregado exitosamente
           console.log(`[SCS] ✅ DISPENSED — Vuelto $${(this.dispensingChangeCents / 100).toFixed(2)} entregado`);
           this.dispensingState = 'done';
           await this.finishPayoutSession();
-        } else if (evCode === 0xdc || evCode === 0xb1 || evCode === 0xd9) {
-          // INCOMPLETE_PAYOUT / ERROR_DURING_PAYOUT / TIMEOUT
+        } else if ([0xdc, 0xb1, 0xd9, 0xd6].includes(evCode)) {
           console.error(`[SCS] ❌ Error en payout: ${evName} (0x${evCode.toString(16)})`);
           this.dispensingState = 'done';
           await this.finishPayoutSession();
@@ -471,59 +474,46 @@ export class SSPService {
     }
   }
 
-
-  // ─── PAGO Y VUELTO ────────────────────────────────────────────────────────
-
   private handlePaymentEvent(device: 'SCS' | 'NV200', event: string, data: Buffer): void {
     if (!this.currentSession?.active) return;
 
     let amountCents = 0;
 
     if (event === 'NOTE_CREDIT' && device === 'NV200') {
-      const channel = data[0];
-      amountCents = this.getNV200ChannelValue(channel);
+      amountCents = this.getNV200ChannelValue(data[0]);
     }
-
     if (event === 'VALUE_ADDED' && device === 'SCS') {
       amountCents = data.length >= 5 ? data.readUInt32LE(1) : 0;
     }
-
     if (event === 'COIN_CREDIT' && device === 'SCS') {
       amountCents = data.length >= 4 ? data.readUInt32LE(0) : 0;
     }
 
     if (amountCents > 0) {
-        if (!this.currentSession?.active) return;
+      if (!this.currentSession?.active) return;
 
       this.currentSession.inserted += amountCents;
       const { orderId, totalCents, inserted } = this.currentSession;
       const remaining = totalCents - inserted;
 
       console.log(`[SSP] +$${(amountCents / 100).toFixed(2)} | Total insertado: $${(
-                      inserted / 100).toFixed(2)} | Restante: $${(Math.max(0, remaining) / 100).toFixed(2)}`);
+        inserted / 100).toFixed(2)} | Restante: $${(Math.max(0, remaining) / 100).toFixed(2)}`);
 
       if (inserted >= totalCents && !this.paymentTriggered) {
-          this.paymentTriggered = true;           // ← bloquear inmediatamente
-          this.currentSession.active = false;
-
-          console.log(`[SSP] ✅ Pago completo: ${orderId}`);
-
+        this.paymentTriggered = true;
+        this.currentSession.active = false;
+        console.log(`[SSP] ✅ Pago completo: ${orderId}`);
 
         const changeCents = inserted - totalCents;
-
-        // ── Deshabilitar NV200 siempre — ya no aceptamos más billetes ────────
         this.nv200?.disable().catch(() => {});
 
         if (changeCents <= 0) {
-          // Pago exacto → deshabilitar SCS y terminar directo
           this.scs?.disable().catch(() => {});
           console.log(`[SSP] 💰 PAYMENT_COMPLETE enviado — Cambio: $0.00`);
           this.onPaymentComplete?.(orderId, 0);
         } else {
-          // Hay vuelto → iniciar payout, SCS permanece habilitado
           console.log(`[SSP] 💰 PAYMENT_COMPLETE enviado — Cambio: $${(changeCents / 100).toFixed(2)}`);
           this.onPaymentComplete?.(orderId, changeCents);
-          // Lanzar payout de forma asíncrona — no bloquear el handler
           this.startPayout(orderId, changeCents).catch((err) => {
             console.error('[SSP] Error iniciando payout:', err);
             this.scs?.disable().catch(() => {});
@@ -533,94 +523,195 @@ export class SSPService {
     }
   }
 
-  private async startPayout(orderId: string, changeCents: number): Promise<void> {
-    // Detener polling momentáneamente para enviar el comando sin interferencia
-    this.stopPolling();
-    await delay(100);
+ private async startPayout(orderId: string, changeCents: number): Promise<void> {
+  this.stopPolling();
+  await delay(300); // ✅ Aumentar de 200 a 500ms — dar tiempo al SCS de terminar
 
-    console.log(`[SCS] 💸 Iniciando payout de $${(changeCents / 100).toFixed(2)}...`);
+  console.log(`[SSP] 💸 Iniciando payout de $${(changeCents / 100).toFixed(2)}...`);
 
-    console.log(`[SCS] 🔑 Re-negociando claves para payout...`);
-        const keysOk = await this.scs!.negotiateKeys();
-        if (!keysOk) {
-          console.error(`[SCS] ❌ No se pudieron negociar claves para payout`);
-          await this.scs?.disable().catch(() => {});
-          this.dispensingState = 'idle';
-          this.startPolling(500);
-          return;
-        }
-        console.log(`[SCS] ✅ Claves re-negociadas`);
-        await this.scs!.enable();
-        await delay(300); 
-    
-      
-    
-    const PAYOUT_ERRORS: Record<number, string> = {
-      1: 'Sin suficiente valor',
-      2: 'No puede pagar exacto',
-      3: 'Dispositivo ocupado',
-      4: 'Dispositivo deshabilitado',
-    };
+  await this.waitForPayinComplete();
 
-    console.log(`[SCS] isNegotiated: ${this.scs!.crypto.isNegotiated}`);
+  const { notesCents, coinsCents } = this.splitChange(changeCents);
+  console.log(`[SSP] NV200: $${(notesCents / 100).toFixed(2)} | SCS: $${(coinsCents / 100).toFixed(2)}`);
 
-    const { code, data } = await this.scs!.payoutAmount(changeCents, this.country);
+ 
+    // ── 1. Payout de billetes con NV200 ──────────────────────────────────
+  if (notesCents > 0) {
+    await this.nv200!.disable();
+    await delay(300);
 
-    console.log(`[SCS] payoutAmount raw → code: 0x${code.toString(16)}, data: ${data.toString('hex')}`);
+    const nv200KeyOk = await this.nv200!.negotiateKeys();
+    if (!nv200KeyOk) {
+      console.error('[NV200] ❌ Key negotiation falló');
+    } else {
+      await this.nv200!.enable();
+      await delay(400);
 
-    if (code !== 0xf0) {
-      const errCode = data?.[0] ?? 0;
-      const errMsg = PAYOUT_ERRORS[errCode] ?? `código 0x${code.toString(16)}`;
-      console.error(`[SCS] ❌ Payout rechazado: ${errMsg} (errCode=${errCode})`);
-      // Deshabilitar SCS y cerrar — no hay vuelto que dar
-      await this.scs?.disable().catch(() => {});
+      const { code: nCode, data: nData } = await this.nv200!.payoutAmount(notesCents, this.country);
+      console.log(`[NV200] payoutAmount → code: 0x${nCode.toString(16)}`);
+
+      if (nCode === 0xf0) {
+        // Esperar DISPENSED del NV200
+        await this.waitForDispensed('NV200', this.nv200!, 15_000);
+      } else {
+        const errCode = nData?.[0] ?? 0;
+        console.error(`[NV200] ❌ Payout rechazado: errCode=${errCode}`);
+      }
+    }
+  }
+
+  // ── 2. Payout de monedas con SCS ─────────────────────────────────────
+  if (coinsCents > 0) {
+      await this.scs!.disable();
+      await delay(500); // ✅ más tiempo para que el SCS termine de procesar monedas
+
+      // ✅ Limpiar cola de eventos pendientes antes de negociar
+      await this.scs!.poll();
+      await delay(100);
+      await this.scs!.poll();
+      await delay(100);
+
+      const scsKeyOk = await this.scs!.negotiateKeys();
+      if (!scsKeyOk) {
+        console.error('[SCS] ❌ Key negotiation falló');
+        this.dispensingState = 'idle';
+        this.startPolling(500);
+        return;
+      }
+
+      await this.scs!.enable();
+      await delay(400);
+
+      const PAYOUT_ERRORS: Record<number, string> = {
+        1: 'Sin suficiente valor', 2: 'No puede pagar exacto',
+        3: 'Dispositivo ocupado',  4: 'Dispositivo deshabilitado',
+      };
+
+      // ✅ Retry automático si el dispositivo está ocupado (errCode=3)
+   let result: { code: number; data: Buffer } = { code: 0, data: Buffer.alloc(0) as Buffer };
+    let attempts = 0;
+
+    do {
+      if (attempts > 0) {
+        console.log(`[SCS] ⏳ Reintentando payout (intento ${attempts + 1}/4)...`);
+        await delay(600);
+      }
+      result = await this.scs!.payoutAmount(coinsCents, this.country);
+      console.log(`[SCS] payoutAmount → code: 0x${result.code.toString(16)} errCode=${result.data?.[0] ?? 0}`);
+      attempts++;
+    } while (result.code === 0xf5 && (result.data?.[0] ?? 0) === 3 && attempts < 4);
+
+    if (result.code !== 0xf0) {
+      const errCode = result.data?.[0] ?? 0;
+      console.error(`[SCS] ❌ Payout rechazado: ${PAYOUT_ERRORS[errCode] ?? `0x${result.code.toString(16)}`}`);
+      await this.scs?.disable();
       this.dispensingState = 'idle';
       this.startPolling(500);
       return;
     }
-
-    // Comando aceptado → armar estado para que handlePoll detecte DISPENSED
-    console.log(`[SCS] ⏳ Payout aceptado, esperando DISPENSED...`);
-    this.dispensingState   = 'waiting';
-    this.dispensingOrderId  = orderId;
-    this.dispensingChangeCents = changeCents;
-
-    // Reanudar polling para detectar 0xD2 DISPENSED
-    this.startPolling(200);
-
-    // Timeout de seguridad: si en 12s no llega DISPENSED, cerrar igual
-    setTimeout(async () => {
-      if (this.dispensingState === 'waiting') {
-        console.warn(`[SCS] ⚠️ Timeout esperando DISPENSED — cerrando sesión`);
-        this.dispensingState = 'done';
-        await this.finishPayoutSession();
-      }
-    }, 12_000);
   }
+
+    // ── 3. Esperar DISPENSED del SCS (o finalizar si solo había billetes) ─
+    if (coinsCents > 0) {
+      console.log(`[SCS] ⏳ Payout aceptado, esperando DISPENSED...`);
+      this.dispensingState       = 'waiting';
+      this.dispensingOrderId     = orderId;
+      this.dispensingChangeCents = changeCents;
+      this.startPolling(200);
+
+      setTimeout(async () => {
+        if (this.dispensingState === 'waiting') {
+          console.warn(`[SCS] ⚠️ Timeout esperando DISPENSED`);
+          this.dispensingState = 'done';
+          await this.finishPayoutSession();
+        }
+      }, 12_000);
+    } else {
+      // Solo había billetes — NV200 ya dispensó
+      await this.finishPayoutSession();
+    }
+}
+
+ 
+private async waitForPayinComplete(): Promise<void> {
+  const MAX_WAIT_MS = 8_000;
+  const POLL_INTERVAL = 300;
+  const start = Date.now();
+
+  console.log('[SCS] ⏳ Esperando fin de PAYIN_ACTIVE...');
+
+  while (Date.now() - start < MAX_WAIT_MS) {
+    const { code, data } = await this.scs!.poll();
+
+    if (code !== 0xf0 || !data.length) {
+      break; // sin eventos — dispositivo libre
+    }
+
+    const hasPayinActive = data.includes(0xc1);
+
+    if (!hasPayinActive) {
+      console.log('[SCS] ✅ PAYIN_ACTIVE finalizado — listo para payout');
+      break;
+    }
+
+    console.log('[SCS] 🔄 PAYIN_ACTIVE todavía activo...');
+    await delay(POLL_INTERVAL);
+  }
+
+  await delay(200); // margen extra antes de negociar
+}
+
+
+// ── Helper: esperar DISPENSED de un dispositivo con timeout ────────────────
+private waitForDispensed(device: 'NV200' | 'SCS', driver: SSPDriver, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const interval = setInterval(async () => {
+      const { code, data } = await driver.poll();
+      if (code !== 0xf0 || !data.length) return;
+      for (let i = 0; i < data.length; i++) {
+        if (data[i] === 0xd2) {
+          console.log(`[${device}] ✅ DISPENSED`);
+          clearInterval(interval);
+          clearTimeout(timeout);
+          resolve();
+          return;
+        }
+        // Error — igual resolvemos para no bloquear
+        if ([0xdc, 0xb1, 0xd9, 0xd6].includes(data[i])) {
+          console.error(`[${device}] ❌ Error durante payout: 0x${data[i].toString(16)}`);
+          clearInterval(interval);
+          clearTimeout(timeout);
+          resolve();
+          return;
+        }
+      }
+    }, 300);
+
+    const timeout = setTimeout(() => {
+      console.warn(`[${device}] ⚠️ Timeout esperando DISPENSED`);
+      clearInterval(interval);
+      resolve();
+    }, timeoutMs);
+  });
+}
 
   private async finishPayoutSession(): Promise<void> {
     this.dispensingState       = 'idle';
-    this.dispensingOrderId      = '';
-    this.dispensingChangeCents  = 0;
+    this.dispensingOrderId     = '';
+    this.dispensingChangeCents = 0;
+
     await this.scs?.disable().catch(() => {});
-    console.log(`[SSP] Sesión cancelada: ${this.currentSession?.orderId ?? ''}`);
+
+    console.log(`[SSP] Payout finalizado: ${this.currentSession?.orderId ?? ''}`);
     this.currentSession = null;
     this.stopPolling();
     this.startPolling(500);
   }
 
-
-  // ─── HELPERS ─────────────────────────────────────────────────────────────
-
   private getNV200ChannelValue(channel: number): number {
     const channelMap: Record<number, number> = {
-      1: 100,
-      2: 200,
-      3: 500,
-      4: 1000,
-      5: 2000,
-      6: 5000,
-      7: 10000,
+      1: 100, 2: 200, 3: 500, 4: 1000,
+      5: 2000, 6: 5000, 7: 10000,
     };
     return channelMap[channel] ?? 0;
   }
@@ -633,12 +724,11 @@ export class SSPService {
     this.port  = null;
     this.scs   = null;
     this.nv200 = null;
-    this.hardwareReady  = false;
-    this.currentSession = null;
+    this.hardwareReady   = false;
+    this.currentSession  = null;
     this.dispensingState = 'idle';
   }
 }
-
 
 // ─── HELPERS BigInt LE 8 bytes ────────────────────────────────────────────────
 function bigIntTo8ByteLE(n: bigint): Buffer {
@@ -652,7 +742,6 @@ function bufferTo8ByteBigIntLE(buf: Buffer): bigint {
   return n;
 }
 function delay(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
-
 
 // ─── EVENTOS ──────────────────────────────────────────────────────────────────
 export const SSP_EVENTS: Record<number, string> = {
